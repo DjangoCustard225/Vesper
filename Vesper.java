@@ -14,7 +14,9 @@ import javafx.scene.control.Label;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
+import javafx.scene.text.Font;
 import javafx.stage.Stage;
 
 public class Vesper extends Application {
@@ -31,6 +33,9 @@ public class Vesper extends Application {
        cb1.getItems().addAll("2160p (4K)", "1440p", "1080p (FHD)", "720p", "480p (SD)");
        TextArea ta = new TextArea();
        ta.setPadding(new Insets(10));
+       ta.setFont(new Font("Arial", 16));
+       HBox.setHgrow(tf1, Priority.ALWAYS);
+       VBox.setVgrow(ta, Priority.ALWAYS);
        Button b1 = new Button("Go");
        b1.setOnAction((e) -> {
         String url = tf1.getText().trim();
