@@ -1,16 +1,17 @@
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Scanner;
-
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
-import javafx.scene.control.Label;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.HBox;
@@ -26,14 +27,20 @@ public class Vesper extends Application {
 
     @Override
     public void start(Stage stage) throws Exception {
+
        TextField tf1 = new TextField();
        tf1.setPromptText("Enter the URL");
        ComboBox<String> cb1 = new ComboBox<>();
        cb1.setPromptText("Quality");
        cb1.getItems().addAll("2160p (4K)", "1440p", "1080p (FHD)", "720p", "480p (SD)");
+       
+       CheckBox sponsor = new CheckBox("SponsorBlock");
+       CheckBox thumbnail = new CheckBox("Embed Thumbnail");
+        
        TextArea ta = new TextArea();
        ta.setPadding(new Insets(10));
        ta.setFont(new Font("Arial", 16));
+       ta.setEditable(false);
        HBox.setHgrow(tf1, Priority.ALWAYS);
        VBox.setVgrow(ta, Priority.ALWAYS);
        Button b1 = new Button("Go");
@@ -45,10 +52,16 @@ public class Vesper extends Application {
         }
         ta.setText("Starting download...\n");
         String quality = cb1.getValue();
+        boolean isSponsor = sponsor.isSelected();
+        boolean isEmbed = thumbnail.isSelected();
         new Thread(() -> {
             String flag;
             try {
                 switch (quality) {
+                    case null: {
+                        flag = "bv+ba/b";
+                        break;
+                    }
                     case "2160p (4K)": {
                         flag = "bv*[height<=2160]+ba/b";
                         break;
@@ -74,7 +87,21 @@ public class Vesper extends Application {
                         break;
 
                 }
-                ProcessBuilder pb1 = new ProcessBuilder("yt-dlp.exe", "-f", flag, url);
+                List<String> command = new ArrayList<>();
+                command.add("yt-dlp.exe");
+                command.add("-f");
+                command.add(flag);
+                if (url.contains("youtube") || url.contains("youtu.be")) {
+                    if (isSponsor) {
+                        command.add("--sponsorblock-remove");
+                        command.add("all");
+                    }
+                    if (isEmbed) {
+                        command.add("--embed-thumbnail");
+                    }
+                }
+                command.add(url);
+                ProcessBuilder pb1 = new ProcessBuilder(command);
                 Process p1 = pb1.start();
                 BufferedReader br = new BufferedReader(new InputStreamReader(p1.getInputStream()));
                 Scanner scanner = new Scanner(br);
@@ -88,30 +115,50 @@ public class Vesper extends Application {
                 }
                 scanner.close();
                 int exitCode = p1.waitFor();
-                if (exitCode == 0) {
+                Platform.runLater(() -> {
+                    if (exitCode == 0) {
                     ta.appendText("Download complete!\n");
-                } else {
+                    } else {
                     ta.appendText("Download failed!\n");
-                }
+                    }
+                });
             } catch (IOException | InterruptedException e1) {
                 e1.printStackTrace();
             }
         }).start();
-    });
+        });
 
-       HBox h1 = new HBox();
-       h1.setAlignment(Pos.TOP_CENTER);
-       h1.setPadding(new Insets(10));
-       h1.setSpacing(10);
-       h1.getChildren().addAll(tf1, cb1, b1);
-       VBox v1 = new VBox();
-       v1.getChildren().addAll(h1, ta);
-       Scene scene = new Scene(v1);
-       stage.setScene(scene);
-       stage.setTitle("Vesper");
-       stage.show();
+        HBox h1 = new HBox();
+        h1.setAlignment(Pos.TOP_CENTER);
+        h1.setPadding(new Insets(10));
+        h1.setSpacing(10);
+        h1.getChildren().addAll(tf1, cb1, b1);
 
-       Platform.runLater(() -> {
+        HBox h2 = new HBox();
+        h2.setAlignment(Pos.TOP_CENTER);
+        h2.setPadding(new Insets(10));
+        h2.setSpacing(10);
+        h2.getChildren().addAll(sponsor, thumbnail);
+        h2.setVisible(false);
+        h2.setManaged(false);
+        tf1.textProperty().addListener((observable, oldValue, newValue) -> {
+            if (newValue != null && (newValue.toLowerCase().contains("youtube") || newValue.toLowerCase().contains("youtu.be"))) {
+                h2.setVisible(true);
+                h2.setManaged(true);
+            } else {
+                h2.setVisible(false);
+                h2.setManaged(false);
+            }
+        });
+
+        VBox v1 = new VBox();
+        v1.getChildren().addAll(h1, h2, ta);
+        Scene scene = new Scene(v1);
+        stage.setScene(scene);
+        stage.setTitle("Vesper");
+        stage.show();
+
+        Platform.runLater(() -> {
             h1.requestFocus();
         });
     }
