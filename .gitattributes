@@ -1,0 +1,2 @@
+# Keep build and asset tooling out of GitHub's app language statistics.
+Scripts/** -linguist-detectable
