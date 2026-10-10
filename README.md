@@ -5,8 +5,7 @@
 <h1 align="center">Vesper</h1>
 
 <p align="center">
-  Movies and series, in native Liquid Glass.<br>
-  Immersive artwork · TMDB metadata · Stremio-compatible add-ons
+  A native iOS app for movies, shows, and Stremio add-ons.
 </p>
 
 <p align="center">
@@ -14,11 +13,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/DjangoCustard225/Vesper/releases/download/0.1/Vesper.ipa">Download IPA · 0.1</a>
+  <a href="https://github.com/DjangoCustard225/Vesper/releases/latest/download/Vesper.ipa">Download IPA · Latest release</a>
   · <a href="docs/DEVELOPMENT.md">Build from source</a>
 </p>
 
-Vesper is a SwiftUI app for iPhone and iPad. Discover movies and shows with TMDB, add your own providers, and play sources in VLC or Infuse.
+Browse with TMDB, save titles to your library, and play add-on sources in VLC or Infuse.
 
 ## Features
 
@@ -30,7 +29,7 @@ Vesper is a SwiftUI app for iPhone and iPad. Discover movies and shows with TMDB
 
 ## Get started
 
-1. Download the [0.1 release](https://github.com/DjangoCustard225/Vesper/releases/tag/0.1), sign the unsigned IPA, and install it on **iOS 27 or later**.
+1. Download the [latest release](https://github.com/DjangoCustard225/Vesper/releases/latest), sign the unsigned IPA, and install it on **iOS 27 or later**.
 2. In **Settings → TMDB**, save and verify your [TMDB API key or Read Access Token](https://www.themoviedb.org/settings/api).
 3. In **Settings → Add-ons → Add add-on**, install a provider using its manifest URL or `stremio://` link.
 4. Install **VLC** or **Infuse**, choose it in **Settings → Player**, then open a title and tap **Play**.
