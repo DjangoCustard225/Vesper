@@ -14,7 +14,6 @@
 
 <p align="center">
   <a href="https://github.com/DjangoCustard225/Vesper/releases/latest/download/Vesper.ipa">Download IPA · Latest release</a>
-  · <a href="docs/DEVELOPMENT.md">Build from source</a>
 </p>
 
 Browse with TMDB, save titles to your library, and watch with external video players like Infuse or VLC.
@@ -39,16 +38,6 @@ Use providers with playable HTTP/HTTPS sources. Vesper has no built-in player or
 ## Privacy
 
 Credentials and add-on configuration are stored in **iOS Keychain**; your library stays on your device. Requests go directly to TMDB and your providers. No analytics, ads, or tracking SDKs.
-
-## Development
-
-Open `Vesper.xcodeproj` in **Xcode 27**, select your signing team, and run **Vesper**. Run core tests with:
-
-```sh
-swift test --package-path Core
-```
-
-See [Development](docs/DEVELOPMENT.md) for build instructions and [Releasing](docs/RELEASING.md) for packaging.
 
 ## Credits
 

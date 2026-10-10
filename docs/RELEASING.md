@@ -6,7 +6,7 @@ The first release uses the tag **`0.1`**, app version **0.1**, and bundle ID **`
 
 1. Update `CFBundleShortVersionString` and `CFBundleVersion` in `Vesper/Info.plist`.
 2. Regenerate the project with `swift Scripts/GenerateXcodeProject.swift`.
-3. Run the core tests and build the IPA using the [development guide](DEVELOPMENT.md).
+3. Validate the release build and IPA.
 4. Check the packaged `Payload/Vesper.app/Info.plist`, archive integrity, icon, and executable.
 5. Add release notes under `docs/releases/`, commit the source, and create the matching annotated tag.
 
