@@ -1,0 +1,16 @@
+.build/
+.swiftpm/
+.bsp/
+xtool/
+*.xcuserstate
+xcuserdata/
+.DS_Store
+__pycache__/
+*.py[cod]
+*.log
+*.ipa
+*.dSYM/
+*.p12
+*.mobileprovision
+.env
+.env.*
