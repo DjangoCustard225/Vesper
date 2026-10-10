@@ -5,7 +5,7 @@
 <h1 align="center">Vesper</h1>
 
 <p align="center">
-  A native iOS app for movies, shows, and Stremio add-ons.
+  A native iOS content hub utilising Stremio add-ons.
 </p>
 
 <p align="center">
