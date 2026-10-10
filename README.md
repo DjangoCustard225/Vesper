@@ -17,7 +17,7 @@
   · <a href="docs/DEVELOPMENT.md">Build from source</a>
 </p>
 
-Browse with TMDB, save titles to your library, and play add-on sources in VLC or Infuse.
+Browse with TMDB, save titles to your library, and watch with external video players like Infuse or VLC.
 
 ## Features
 
@@ -25,14 +25,14 @@ Browse with TMDB, save titles to your library, and play add-on sources in VLC or
 - Explore cast, crew, and related titles.
 - Pick a season and browse episodes.
 - Search titles and save favorites to your library.
-- Watch in VLC or Infuse.
+- Watch with external video players like Infuse or VLC.
 
 ## Get started
 
 1. Download the [latest release](https://github.com/DjangoCustard225/Vesper/releases/latest), sign the unsigned IPA, and install it on **iOS 27 or later**.
 2. In **Settings → TMDB**, save and verify your [TMDB API key or Read Access Token](https://www.themoviedb.org/settings/api).
 3. In **Settings → Add-ons → Add add-on**, install a provider using its manifest URL or `stremio://` link.
-4. Install **VLC** or **Infuse**, choose it in **Settings → Player**, then open a title and tap **Play**.
+4. Install an external video player like **Infuse** or **VLC**, choose it in **Settings → Player**, then open a title and tap **Play**.
 
 Use providers with playable HTTP/HTTPS sources. Vesper has no built-in player or on-device torrent engine.
 
