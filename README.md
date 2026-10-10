@@ -18,6 +18,16 @@
 
 Browse with TMDB, save titles to your library, and watch with external video players like Infuse or VLC.
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screenshots/discover.png" width="160" alt="Discover movies and shows">
+  <img src="docs/screenshots/movie-details.png" width="160" alt="Movie details and related titles">
+  <img src="docs/screenshots/series-details.png" width="160" alt="Series details and episodes">
+  <img src="docs/screenshots/search.png" width="160" alt="Search results">
+  <img src="docs/screenshots/library.png" width="160" alt="Saved titles in the library">
+</p>
+
 ## Features
 
 - Browse movies and shows with immersive artwork and a customizable home carousel.
