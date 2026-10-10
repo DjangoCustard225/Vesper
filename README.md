@@ -22,9 +22,11 @@ Browse with TMDB, save titles to your library, and watch with external video pla
 
 <p align="center">
   <img src="docs/screenshots/discover.png" width="160" alt="Discover movies and shows">
+  &emsp;
   <img src="docs/screenshots/movie-details.png" width="160" alt="Movie details and related titles">
+  &emsp;
   <img src="docs/screenshots/series-details.png" width="160" alt="Series details and episodes">
-  <img src="docs/screenshots/search.png" width="160" alt="Search results">
+  &emsp;
   <img src="docs/screenshots/library.png" width="160" alt="Saved titles in the library">
 </p>
 
