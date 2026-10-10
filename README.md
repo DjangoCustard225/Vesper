@@ -21,11 +21,11 @@ Browse with TMDB, save titles to your library, and play add-on sources in VLC or
 
 ## Features
 
-- Immersive artwork, a customizable hero carousel, and soft scroll edges.
-- Rich details with title logos, cast, crew, and related titles.
-- Season selection and horizontal episode browsing.
-- Search, a local library, and automatically loading catalogs.
-- Stremio-compatible add-ons and external video players.
+- Browse movies and shows with immersive artwork and a customizable home carousel.
+- Explore cast, crew, and related titles.
+- Pick a season and browse episodes.
+- Search titles and save favorites to your library.
+- Watch in VLC or Infuse.
 
 ## Get started
 
