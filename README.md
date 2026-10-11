@@ -36,6 +36,7 @@ Browse with TMDB, save titles to your library, and watch with external video pla
 - Explore cast, crew, and related titles.
 - Pick a season and browse episodes.
 - Search titles and save favorites to your library.
+- Back up and restore your library.
 - Watch with external video players like Infuse or VLC.
 
 ## Get started
@@ -49,7 +50,7 @@ Use providers with playable HTTP/HTTPS sources. Vesper has no built-in player or
 
 ## Privacy
 
-Credentials and add-on configuration are stored in **iOS Keychain**; your library stays on your device. Requests go directly to TMDB and your providers. No analytics, ads, or tracking SDKs.
+Credentials and add-on configuration are stored in **iOS Keychain**; your library stays on your device. Vesper doesn’t record watch history or playback progress. Requests go directly to TMDB and your providers. Local diagnostics omit URLs and credentials. No analytics, ads, or tracking SDKs.
 
 ## Credits
 

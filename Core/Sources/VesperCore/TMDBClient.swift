@@ -58,6 +58,7 @@ public struct TMDBEnrichment: Codable, Hashable, Sendable {
     public func applying(to item: MediaItem) -> MediaItem {
         var enriched = item
         if let imdbID { enriched.imdbID = imdbID }
+        enriched.tmdbID = id
         enriched.tmdbRating = rating
         if let overview, !overview.isEmpty { enriched.description = overview }
         if let posterURL { enriched.poster = posterURL }
@@ -86,8 +87,8 @@ enum TMDBAuthentication: Equatable {
     var value: String { switch self { case .apiKey(let value), .bearer(let value): value } }
 }
 
-struct TMDBConfiguration: Decodable, Sendable {
-    struct Images: Decodable, Sendable {
+struct TMDBConfiguration: Codable, Sendable {
+    struct Images: Codable, Sendable {
         let secureBaseUrl: String
         let profileSizes: [String]
         let posterSizes: [String]
@@ -241,6 +242,8 @@ final class TMDBRedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Send
 
 public actor TMDBClient {
     private let session: URLSession
+    private let transport: HTTPTransport
+    private let diskCache: ResponseCache?
     private var activeCredential: String?
     private var configuration: TMDBConfiguration?
     private var configurationRequest: (id: UUID, task: Task<TMDBConfiguration, Error>)?
@@ -248,13 +251,16 @@ public actor TMDBClient {
     private var requests: [String: (id: UUID, task: Task<Data?, Error>)] = [:]
     private var listingCache: [String: (Date, TMDBPage)] = [:]
     private var seasonCache: [String: (Date, TMDBSeasonResponse)] = [:]
-    public init(session: URLSession? = nil) {
+    public init(session: URLSession? = nil, cache: ResponseCache? = nil, retryPolicy: RetryPolicy = RetryPolicy()) {
         if let session { self.session = session } else {
             let config = URLSessionConfiguration.ephemeral
             config.urlCache = nil; config.httpCookieStorage = nil
             config.timeoutIntervalForRequest = 15; config.timeoutIntervalForResource = 25
+            config.httpMaximumConnectionsPerHost = 4
             self.session = URLSession(configuration: config, delegate: TMDBRedirectGuard(), delegateQueue: nil)
         }
+        diskCache = cache
+        transport = HTTPTransport(session: self.session, policy: retryPolicy)
     }
     deinit { session.invalidateAndCancel() }
 
@@ -282,11 +288,10 @@ public actor TMDBClient {
             let pending: (id: UUID, task: Task<Data?, Error>)
             if let existing = requests[key] { pending = existing }
             else {
-                let session = session
+                let transport = transport
                 pending = (UUID(), Task {
-                    let (data, response) = try await session.data(for: request)
+                    let (data, response) = try await transport.data(for: request, operation: .tmdb)
                     try Task.checkCancellation()
-                    guard let response = response as? HTTPURLResponse else { throw TMDBError.invalidResponse }
                     switch response.statusCode {
                     case 200..<300: break
                     case 401, 403: throw TMDBError.unauthorized
@@ -319,31 +324,73 @@ public actor TMDBClient {
             configuration = nil; cache = [:]; activeCredential = credential
         }
     }
+    public func invalidate() async {
+        configurationRequest?.task.cancel(); configurationRequest = nil
+        for request in requests.values { request.task.cancel() }
+        requests = [:]; cache = [:]; listingCache = [:]; seasonCache = [:]; configuration = nil
+        activeCredential = nil
+        await diskCache?.clear()
+    }
+    public func identified(_ item: MediaItem, credential input: String, resolveUnknown: Bool = true) async throws -> MediaItem {
+        guard ["movie", "series"].contains(item.type) else { return item }
+        let credential = try Self.normalizedCredential(input)
+        use(credential)
+        var result = item
+        if let tmdb = MediaIdentity.tmdbID(item) {
+            if let diskCache, let cached = await diskCache.value(String.self, key: credential + ":tmdbIdentity:" + item.type + ":" + String(tmdb), ttl: 6 * 3600),
+               let imdb = MediaIdentity.validIMDb(cached.value) {
+                result.imdbID = MediaIdentity.validIMDb(item.imdbID) ?? imdb
+            }
+            return result
+        }
+        guard let imdb = MediaIdentity.validIMDb(item.imdbID) ?? MediaIdentity.validIMDb(item.id) else { return item }
+        let key = credential + ":identity:" + item.type + ":" + imdb
+        if let diskCache, let cached = await diskCache.value(Int.self, key: key, ttl: 6 * 3600), cached.value > 0 {
+            result.tmdbID = cached.value; result.imdbID = imdb; return result
+        }
+        guard resolveUnknown else { return item }
+        let token = await diskCache?.token()
+        guard let match = try await fetch(TMDBFindResponse.self, path: ["find", imdb],
+            query: [URLQueryItem(name: "external_source", value: "imdb_id")], credential: credential),
+              let id = (item.type == "movie" ? match.movieResults : match.tvResults)?.first?.id, id > 0 else { return item }
+        try Task.checkCancellation()
+        guard activeCredential == credential else { throw CancellationError() }
+        result.tmdbID = id; result.imdbID = imdb
+        await diskCache?.save(id, key: key, token: token)
+        await diskCache?.save(imdb, key: credential + ":tmdbIdentity:" + item.type + ":" + String(id), token: token)
+        return result
+    }
     public func validate(credential input: String) async throws {
         let credential = try Self.normalizedCredential(input)
         guard let config = try await fetch(TMDBConfiguration.self, path: ["configuration"], credential: credential),
               config.image("/test.jpg", sizes: config.images.profileSizes, preferred: "w185") != nil else { throw TMDBError.invalidResponse }
         use(credential); configuration = config
     }
-    public func enrichment(for item: MediaItem, credential input: String) async throws -> TMDBEnrichment? {
+    public func enrichment(for item: MediaItem, credential input: String, refresh: Bool = false) async throws -> TMDBEnrichment? {
         guard item.type == "movie" || item.type == "series" else { return nil }
         let type = item.type == "movie" ? "movie" : "tv"
         let credential = try Self.normalizedCredential(input)
+        try Task.checkCancellation()
+        if refresh, let activeCredential, activeCredential != credential { throw CancellationError() }
         use(credential)
-        if let (date, value) = cache[item.key], Date().timeIntervalSince(date) < 6 * 3600 { return value }
+        let diskKey = MetadataCacheKey.details(item, credential: credential)
+        if !refresh, let (date, value) = cache[item.key], Date().timeIntervalSince(date) < 6 * 3600 { return value }
+        if !refresh, let diskCache, let cached = await diskCache.value(TMDBEnrichment.self, key: diskKey, ttl: 6 * 3600) {
+            if !cached.isFresh {
+                await diskCache.refresh(key: diskKey) { [self] in _ = try await self.enrichment(for: item, credential: credential, refresh: true) }
+            }
+            try Task.checkCancellation()
+            return cached.value
+        }
+        let token = await diskCache?.token()
         let id: Int
-        if item.id.range(of: "^tt[0-9]+$", options: .regularExpression) != nil {
-            guard let match = try await fetch(TMDBFindResponse.self, path: ["find", item.id],
+        if let mapped = MediaIdentity.tmdbID(item) { id = mapped }
+        else if let imdb = MediaIdentity.validIMDb(item.id) ?? MediaIdentity.validIMDb(item.imdbID) {
+            guard let match = try await fetch(TMDBFindResponse.self, path: ["find", imdb],
                 query: [URLQueryItem(name: "external_source", value: "imdb_id")], credential: credential),
                   let found = (type == "movie" ? match.movieResults : match.tvResults)?.first, found.id > 0 else { return nil }
             id = found.id
-        } else {
-            let parts = item.id.split(separator: ":").map(String.init)
-            guard parts.first == "tmdb", (parts.count == 2 || parts.count == 3),
-                  parts.count == 2 || parts[1] == type || (type == "tv" && parts[1] == "series"),
-                  let number = Int(parts.last ?? ""), number > 0 else { return nil }
-            id = number
-        }
+        } else { return nil }
         async let configuration = imageConfiguration(credential: credential)
         guard let details = try await fetch(TMDBDetails.self, path: [type, String(id)],
             query: [URLQueryItem(name: "append_to_response", value: type == "movie" ? "credits,external_ids,images" : "aggregate_credits,external_ids,images"),
@@ -354,6 +401,11 @@ public actor TMDBClient {
             cache = cache.filter { Date().timeIntervalSince($0.value.0) < 6 * 3600 }
             if cache.count >= 100, let oldest = cache.min(by: { $0.value.0 < $1.value.0 })?.key { cache.removeValue(forKey: oldest) }
             cache[item.key] = (Date(), value)
+            await diskCache?.save(value, key: diskKey, token: token)
+            if let imdb = value.imdbID {
+                await diskCache?.save(id, key: credential + ":identity:" + item.type + ":" + imdb, token: token)
+                await diskCache?.save(imdb, key: credential + ":tmdbIdentity:" + item.type + ":" + String(id), token: token)
+            }
         }
         return value
     }
@@ -374,7 +426,7 @@ public enum TMDBCatalog: String, CaseIterable, Identifiable, Sendable {
     var path: [String] { [mediaType, self == .popularMovies || self == .popularSeries ? "popular" : "top_rated"] }
 }
 
-public struct TMDBPage: Sendable {
+public struct TMDBPage: Codable, Sendable {
     public let items: [MediaItem]
     public let page: Int
     public let totalPages: Int
@@ -427,6 +479,11 @@ private struct TMDBSeasonResponse: Decodable, Sendable {
 extension TMDBClient {
     private func imageConfiguration(credential: String) async throws -> TMDBConfiguration {
         if let configuration { return configuration }
+        if let diskCache, let cached = await diskCache.value(TMDBConfiguration.self, key: credential + ":configuration", ttl: 7 * 24 * 3600) {
+            guard activeCredential == credential else { throw CancellationError() }
+            configuration = cached.value
+            return cached.value
+        }
         if let request = configurationRequest {
             let value = try await request.task.value
             try Task.checkCancellation()
@@ -434,6 +491,7 @@ extension TMDBClient {
             return value
         }
         let id = UUID()
+        let token = await diskCache?.token()
         let task = Task<TMDBConfiguration, Error> {
             guard let value = try await fetch(TMDBConfiguration.self, path: ["configuration"], credential: credential) else { throw TMDBError.invalidResponse }
             return value
@@ -443,6 +501,7 @@ extension TMDBClient {
             let value = try await task.value
             guard activeCredential == credential else { throw CancellationError() }
             configuration = value
+            await diskCache?.save(value, key: credential + ":configuration", token: token)
             if configurationRequest?.id == id { configurationRequest = nil }
             try Task.checkCancellation()
             return value
@@ -465,13 +524,24 @@ extension TMDBClient {
         let currentID = "tmdb:\(mediaType):\(tmdbID)"
         return TMDBPage(items: result.items.filter { $0.id != currentID && $0.poster != nil }, page: result.page, totalPages: result.totalPages)
     }
-    private func listing(path: [String], type: String?, page: Int, query: [URLQueryItem] = [], credential input: String) async throws -> TMDBPage {
+    private func listing(path: [String], type: String?, page: Int, query: [URLQueryItem] = [], credential input: String, refresh: Bool = false) async throws -> TMDBPage {
         guard (1...500).contains(page) else { throw TMDBError.invalidResponse }
         let credential = try Self.normalizedCredential(input)
+        try Task.checkCancellation()
+        if refresh, let activeCredential, activeCredential != credential { throw CancellationError() }
         use(credential)
         let parameters = query + [URLQueryItem(name: "page", value: String(page)), URLQueryItem(name: "language", value: "en-US")]
         let cacheKey = try Self.request(path: path, query: parameters, credential: credential).url!.absoluteString
-        if let (date, value) = listingCache[cacheKey], Date().timeIntervalSince(date) < 300 { return value }
+        if !refresh, let (date, value) = listingCache[cacheKey], Date().timeIntervalSince(date) < 300 { return value }
+        let diskKey = try MetadataCacheKey.listing(credential: credential, path: path, page: page, query: query)
+        if !refresh, let diskCache, let cached = await diskCache.value(TMDBPage.self, key: diskKey, ttl: 300) {
+            if !cached.isFresh {
+                await diskCache.refresh(key: diskKey) { [self] in _ = try await self.listing(path: path, type: type, page: page, query: query, credential: credential, refresh: true) }
+            }
+            try Task.checkCancellation()
+            return cached.value
+        }
+        let token = await diskCache?.token()
         async let configuration = imageConfiguration(credential: credential)
         guard let result = try await fetch(TMDBListing.self, path: path,
             query: parameters, credential: credential),
@@ -484,16 +554,28 @@ extension TMDBClient {
         listingCache = listingCache.filter { Date().timeIntervalSince($0.value.0) < 300 }
         if listingCache.count >= 100, let oldest = listingCache.min(by: { $0.value.0 < $1.value.0 })?.key { listingCache[oldest] = nil }
         listingCache[cacheKey] = (Date(), value)
+        await diskCache?.save(value, key: diskKey, token: token)
         return value
     }
-    public func episodes(for media: MediaItem, tmdbID: Int, season: Int, credential input: String) async throws -> [Episode] {
+    public func episodes(for media: MediaItem, tmdbID: Int, season: Int, credential input: String, refresh: Bool = false) async throws -> [Episode] {
         guard media.type == "series", tmdbID > 0, season >= 0 else { throw TMDBError.invalidResponse }
         let credential = try Self.normalizedCredential(input)
+        try Task.checkCancellation()
+        if refresh, let activeCredential, activeCredential != credential { throw CancellationError() }
         use(credential)
         let cacheKey = "\(tmdbID):\(season)"
+        let diskKey = MetadataCacheKey.episodes(media, id: tmdbID, season: season, credential: credential)
+        if !refresh, let diskCache, let cached = await diskCache.value([Episode].self, key: diskKey, ttl: 6 * 3600) {
+            if !cached.isFresh {
+                await diskCache.refresh(key: diskKey) { [self] in _ = try await self.episodes(for: media, tmdbID: tmdbID, season: season, credential: credential, refresh: true) }
+            }
+            try Task.checkCancellation()
+            return cached.value
+        }
+        let token = await diskCache?.token()
         async let configuration = imageConfiguration(credential: credential)
         let result: TMDBSeasonResponse
-        let cached = seasonCache[cacheKey].flatMap { Date().timeIntervalSince($0.0) < 6 * 3600 ? $0.1 : nil }
+        let cached = refresh ? nil : seasonCache[cacheKey].flatMap { Date().timeIntervalSince($0.0) < 6 * 3600 ? $0.1 : nil }
         if let cached { result = cached }
         else {
             guard let value = try await fetch(TMDBSeasonResponse.self, path: ["tv", String(tmdbID), "season", String(season)],
@@ -508,11 +590,13 @@ extension TMDBClient {
             seasonCache[cacheKey] = (Date(), result)
         }
         var seen = Set<Int>()
-        return result.episodes.filter { $0.seasonNumber == season && $0.episodeNumber > 0 && seen.insert($0.episodeNumber).inserted }.map {
+        let episodes = result.episodes.filter { $0.seasonNumber == season && $0.episodeNumber > 0 && seen.insert($0.episodeNumber).inserted }.map {
             Episode(id: "\(media.playbackID):\(season):\($0.episodeNumber)", title: $0.name, name: nil, season: season,
                 episode: $0.episodeNumber, overview: $0.overview,
                 thumbnail: config.episodeImage($0.stillPath),
                 released: $0.airDate, streams: nil, runtimeMinutes: $0.runtime.flatMap { $0 > 0 ? $0 : nil })
         }.sorted { ($0.episode ?? 0) < ($1.episode ?? 0) }
+        await diskCache?.save(episodes, key: diskKey, token: token)
+        return episodes
     }
 }

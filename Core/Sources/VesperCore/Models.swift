@@ -116,10 +116,11 @@ public struct MediaItem: Codable, Hashable, Identifiable, Sendable {
     public var releaseInfo: String?
     public var imdbRating: String?
     public var imdbID: String?
+    public var tmdbID: Int? = nil
     public var tmdbRating: Double?
-    public var playbackID: String { imdbID ?? id }
+    public var playbackID: String { MediaIdentity.validIMDb(imdbID) ?? id }
     public func isSameTitle(as other: MediaItem) -> Bool {
-        type == other.type && (id == other.id || playbackID == other.playbackID)
+        type == other.type && !MediaIdentity.aliases(self).isDisjoint(with: MediaIdentity.aliases(other))
     }
     public var runtime: String?
     public var genres: [String]?
@@ -167,7 +168,6 @@ public struct StreamSource: Codable, Hashable, Sendable {
     public let infoHash: String?
     public let fileIdx: Int?
     public let sources: [String]?
-    public let subtitles: [SubtitleSource]?
     public let behaviorHints: StreamHints?
     public var label: String { name ?? "Stream" }
     public var detail: String { description ?? title ?? (infoHash != nil ? "Torrent · streaming server required" : "") }
@@ -184,30 +184,6 @@ public struct ProxyHeaders: Codable, Hashable, Sendable {
     public let response: [String: String]?
 }
 
-public struct SubtitleSource: Codable, Hashable, Identifiable, Sendable {
-    public let id: String
-    public let url: String
-    public let lang: String
-    public var languageName: String { Locale.current.localizedString(forLanguageCode: lang) ?? lang.uppercased() }
-}
-
 public struct CatalogResponse: Decodable, Sendable { public let metas: [MediaItem] }
 public struct MetaResponse: Decodable, Sendable { public let meta: MediaItem? }
 public struct StreamResponse: Decodable, Sendable { public let streams: [StreamSource] }
-public struct SubtitleResponse: Decodable, Sendable { public let subtitles: [SubtitleSource] }
-
-public struct WatchProgress: Codable, Identifiable, Sendable {
-    public var id: String { media.key + ":" + videoID }
-    public let media: MediaItem
-    public let videoID: String
-    public let episodeTitle: String?
-    public var position: Double
-    public var duration: Double
-    public var updated: Date
-    public var fraction: Double { duration > 0 ? min(max(position / duration, 0), 1) : 0 }
-    public var isFinished: Bool { duration > 0 && fraction >= 0.95 }
-    public init(media: MediaItem, videoID: String, episodeTitle: String?, position: Double, duration: Double, updated: Date = Date()) {
-        self.media = media; self.videoID = videoID; self.episodeTitle = episodeTitle
-        self.position = position; self.duration = duration; self.updated = updated
-    }
-}

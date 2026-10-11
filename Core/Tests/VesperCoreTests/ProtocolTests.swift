@@ -67,52 +67,25 @@ final class ProtocolTests: XCTestCase {
     }
     func testDirectExternalAndUnsupportedSources() throws {
         let direct = try decode(StreamSource.self, #"{"url":"https://example.com/stream.m3u8"}"#)
-        XCTAssertEqual(try StreamResolver.resolve(direct, server: ""), .native(URL(string: "https://example.com/stream.m3u8")!))
+        XCTAssertEqual(try StreamResolver.resolve(direct), .native(URL(string: "https://example.com/stream.m3u8")!))
         let external = try decode(StreamSource.self, #"{"externalUrl":"https://example.com/watch"}"#)
-        XCTAssertEqual(try StreamResolver.resolve(external, server: ""), .external(URL(string: "https://example.com/watch")!))
+        XCTAssertEqual(try StreamResolver.resolve(external), .external(URL(string: "https://example.com/watch")!))
         let unsafe = try decode(StreamSource.self, #"{"externalUrl":"javascript:alert(1)"}"#)
-        XCTAssertThrowsError(try StreamResolver.resolve(unsafe, server: ""))
+        XCTAssertThrowsError(try StreamResolver.resolve(unsafe))
         let unsupported = try decode(StreamSource.self, #"{"rarUrls":["https://example.com/movie.rar"]}"#)
-        XCTAssertThrowsError(try StreamResolver.resolve(unsupported, server: ""))
+        XCTAssertThrowsError(try StreamResolver.resolve(unsupported))
     }
-    func testTorrentLargestFileAndTrackers() throws {
-        let hash = String(repeating: "a", count: 40)
-        let source = try decode(StreamSource.self, """
-        {"infoHash":"\(hash)","sources":["tracker:udp://tracker.example:80/announce","dht:node"]}
-        """)
-        XCTAssertThrowsError(try StreamResolver.resolve(source, server: "")) { XCTAssertEqual($0 as? AddonError, .serverRequired) }
-        guard case .native(let url) = try StreamResolver.resolve(source, server: "http://192.168.1.5:11470/base/") else { return XCTFail() }
-        XCTAssertEqual(url.path, "/base/\(hash)/-1")
-        XCTAssertEqual(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first?.value, "udp://tracker.example:80/announce")
-        let invalid = try decode(StreamSource.self, #"{"infoHash":"../bad"}"#)
-        XCTAssertThrowsError(try StreamResolver.resolve(invalid, server: "http://example.com")) { XCTAssertEqual($0 as? AddonError, .invalidTorrent) }
+    func testTorrentsAndHeaderDependentSourcesAreUnsupported() throws {
+        for json in [#"{"infoHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","fileIdx":1}"#,
+                     #"{"url":"https://video.example/file","behaviorHints":{"proxyHeaders":{"request":{"Authorization":"Bearer private"}}}}"#,
+                     #"{"url":"https://video.example/file","behaviorHints":{"proxyHeaders":{"response":{"Content-Type":"video/mp4"}}}}"#] {
+            let source = try decode(StreamSource.self, json)
+            XCTAssertThrowsError(try StreamResolver.resolve(source)) { XCTAssertEqual($0 as? AddonError, .unsupportedStream) }
+        }
+        let direct = try decode(StreamSource.self, #"{"url":"https://video.example/file?token=signed","behaviorHints":{"proxyHeaders":{"request":{},"response":{}}}}"#)
+        XCTAssertEqual(try StreamResolver.resolve(direct), .native(URL(string: "https://video.example/file?token=signed")!))
     }
-    func testCustomHeadersUseServerProxy() throws {
-        let source = try decode(StreamSource.self, #"{"url":"https://media.example:8443/a%20b/movie.m3u8?token=x","behaviorHints":{"proxyHeaders":{"request":{"Referer":"https://origin.example/"}}}}"#)
-        XCTAssertThrowsError(try StreamResolver.resolve(source, server: ""))
-        guard case .native(let url) = try StreamResolver.resolve(source, server: "http://server.example:11470/base") else { return XCTFail() }
-        XCTAssertEqual(url.absoluteString, "http://server.example:11470/base/proxy/d=https%3A%2F%2Fmedia.example%3A8443&h=Referer%3Ahttps%3A%2F%2Forigin.example%2F/a%20b/movie.m3u8?token=x")
-    }
-    func testSubtitleFormatsAndBoundaries() {
-        let srt = "1\r\n00:00:01,000 --> 00:00:03,500\r\n<i>Hello</i>\r\nWorld\r\n\r\n2\r\n00:00:05,000 --> 00:00:06,000\r\nNext"
-        let cues = SubtitleParser.parse(srt)
-        XCTAssertEqual(cues.count, 2)
-        XCTAssertEqual(SubtitleParser.text(at: 1, in: cues), "Hello\nWorld")
-        XCTAssertNil(SubtitleParser.text(at: 3.5, in: cues))
-        XCTAssertEqual(SubtitleParser.parse("WEBVTT\n\n00:01.000 --> 00:03.000 align:center\nCaption").first?.text, "Caption")
-        XCTAssertNil(SubtitleParser.timestamp("NaN:12"))
-        XCTAssertNil(SubtitleParser.timestamp("00:99:01"))
-        XCTAssertTrue(SubtitleParser.parse("not a subtitle").isEmpty)
-    }
-    func testWatchProgressSeparatesEpisodes() throws {
-        let media = try decode(MediaItem.self, #"{"id":"tt123","type":"series","name":"Series"}"#)
-        let first = WatchProgress(media: media, videoID: "tt123:1:1", episodeTitle: nil, position: 96, duration: 100)
-        let second = WatchProgress(media: media, videoID: "tt123:1:2", episodeTitle: nil, position: 30, duration: 100)
-        XCTAssertTrue(first.isFinished)
-        XCTAssertFalse(second.isFinished)
-        XCTAssertNotEqual(first.id, second.id)
-        XCTAssertEqual(second.fraction, 0.3)
-    }
+
 }
 
 final class FixtureURLProtocol: URLProtocol {
@@ -169,19 +142,5 @@ final class ClientTests: XCTestCase {
         do { _ = try await client().install("https://fixture.example/manifest.json"); XCTFail() }
         catch { XCTAssertEqual(error as? AddonError, .invalidManifest) }
     }
-    func testSubtitleVideoIDAndHashExtras() async throws {
-        FixtureURLProtocol.handler = { request in
-            if request.url!.path.hasSuffix("manifest.json") {
-                return (200, Data(#"{"id":"subtitles","name":"Subtitles","version":"1.0.0","types":["series"],"resources":["subtitles"],"catalogs":[]}"#.utf8))
-            }
-            let path = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!.percentEncodedPath
-            XCTAssertEqual(path, "/subtitles/series/tt123%3A1%3A2/filename=episode.mkv&videoHash=1234567890abcdef&videoSize=12345.json")
-            return (200, Data(#"{"subtitles":[{"id":"en","url":"https://example.com/en.srt","lang":"eng"}]}"#.utf8))
-        }
-        let api = client()
-        let addon = try await api.install("https://fixture.example/manifest.json")
-        let stream = try JSONDecoder().decode(StreamSource.self, from: Data(#"{"url":"https://example.com/video.mp4","behaviorHints":{"videoHash":"1234567890abcdef","videoSize":12345,"filename":"episode.mkv"}}"#.utf8))
-        let options = try await api.subtitles(addon, type: "series", videoID: "tt123:1:2", stream: stream)
-        XCTAssertEqual(options.first?.lang, "eng")
-    }
+
 }

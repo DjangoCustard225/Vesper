@@ -23,7 +23,7 @@ struct SettingsView: View {
                 }
             }
             Section {
-                NavigationLink { HistoryView() } label: { Label("Watch history", systemImage: "clock") }
+                NavigationLink { DataSettingsView() } label: { Label("Data", systemImage: "externaldrive") }
                 NavigationLink { AppAboutView() } label: { Label("About", systemImage: "info.circle") }
             }
         }.appScrollEdges().navigationTitle("Settings").toolbar(.visible, for: .navigationBar)

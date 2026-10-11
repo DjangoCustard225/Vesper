@@ -7,17 +7,13 @@ public enum VideoPlayer: String, CaseIterable, Identifiable, Codable, Sendable {
     public static func preferred(storedValue: String?) -> VideoPlayer {
         storedValue.flatMap(VideoPlayer.init(rawValue:)) ?? .vlc
     }
-    public func launchURL(for stream: URL, position: Double = 0) throws -> URL {
+    public func launchURL(for stream: URL) throws -> URL {
         _ = try AddonURL.http(stream.absoluteString)
         var components = URLComponents()
         components.scheme = self == .vlc ? "vlc-x-callback" : "infuse"
         components.host = "x-callback-url"
         components.path = self == .vlc ? "/stream" : "/play"
-        var items = [URLQueryItem(name: "url", value: stream.absoluteString),
-                     URLQueryItem(name: "x-success", value: "vesper://player-return")]
-        if self == .infuse, position.isFinite, position > 0 {
-            items.append(URLQueryItem(name: "position", value: String(Int(min(position, 31_536_000)))))
-        }
+        let items = [URLQueryItem(name: "url", value: stream.absoluteString)]
         // Encode nested URLs completely, preserving signed queries, percent escapes and '+' values.
         components.percentEncodedQuery = items.map { AddonURL.encode($0.name) + "=" + AddonURL.encode($0.value ?? "") }.joined(separator: "&")
         guard let url = components.url else { throw AddonError.invalidURL }

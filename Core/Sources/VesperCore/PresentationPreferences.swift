@@ -14,8 +14,7 @@ public enum HeroCatalogSelection {
     public static func items(preferredID: String, catalogs: [HeroCatalog]) -> [MediaItem] {
         guard let catalog = catalogs.first(where: { $0.id == preferredID && !$0.items.isEmpty })
             ?? catalogs.first(where: { !$0.items.isEmpty }) else { return [] }
-        var seen = Set<String>()
-        return Array(catalog.items.filter { seen.insert($0.key).inserted }.prefix(20))
+        return Array(MediaIdentity.unique(catalog.items).prefix(20))
     }
 }
 
@@ -23,10 +22,9 @@ public struct CatalogPagination {
     public let items: [MediaItem]
     public let hasMore: Bool
     public init(existing: [MediaItem], incoming: [MediaItem], providerHasMore: Bool, allowEmptyPages: Bool = false) {
-        var seen = Set<String>()
-        let previous = existing.filter { seen.insert($0.key).inserted }
+        let previous = MediaIdentity.unique(existing)
         let previousCount = previous.count
-        items = previous + incoming.filter { seen.insert($0.key).inserted }
+        items = MediaIdentity.unique(previous + incoming)
         hasMore = providerHasMore && (items.count > previousCount || (allowEmptyPages && incoming.isEmpty))
     }
 }

@@ -4,6 +4,7 @@ import VesperCore
 struct HeroPresentation {
     let media: MediaItem
     let titleImage: Image?
+    let metadataRevision: String
 }
 
 struct HeroCarousel: View {
@@ -13,6 +14,13 @@ struct HeroCarousel: View {
     @State private var selectedID: String?
     @State private var presentations: [String: HeroPresentation] = [:]
     @State private var presentationRevision: UUID?
+    private var nearbyArtwork: [URL] {
+        guard !items.isEmpty else { return [] }
+        let index = items.firstIndex { $0.key == selectedID } ?? 0
+        return items[max(0, index - 1)...min(items.count - 1, index + 1)].compactMap {
+            ($0.background ?? $0.poster).flatMap { try? AddonURL.http($0) }
+        }
+    }
 
     var body: some View {
         ScrollView(.horizontal) {
@@ -31,7 +39,8 @@ struct HeroCarousel: View {
         .onChange(of: items.map(\.key), initial: true) { _, keys in
             if !keys.contains(selectedID ?? "") { selectedID = keys.first; horizontalOffset = 0 }
         }
-        .task(id: items.map(\.key).joined(separator: "|") + store.tmdbRevision.uuidString) { await prepareTitles() }
+        .task(id: items.map(\.key).joined(separator: "|") + store.tmdbRevision.uuidString + store.metadataRevision(for: items.map { store.detailsCacheID($0) })) { await prepareTitles() }
+        .task(id: nearbyArtwork) { await ArtworkPipeline.shared.prefetch(nearbyArtwork) }
         .overlay(alignment: .bottom) {
             if items.count > 1 {
                 HStack(spacing: 2) {
@@ -57,7 +66,7 @@ struct HeroCarousel: View {
         presentations = presentations.filter { keys.contains($0.key) }
         let current = items.firstIndex { $0.key == selectedID } ?? 0
         let pending = (Array(items.dropFirst(current)) + Array(items.prefix(current)))
-            .filter { presentations[$0.key] == nil }
+            .filter { presentations[$0.key] == nil || presentations[$0.key]?.metadataRevision != store.metadataRevision(for: [store.detailsCacheID($0)]) }
         // Prepare nearby titles first, with at most three metadata/logo loads at once.
         await withTaskGroup(of: (String, HeroPresentation).self) { group in
             var remaining = pending.makeIterator()
@@ -82,6 +91,7 @@ struct HeroCarousel: View {
                 image = Image(uiImage: prepared)
             }
         }
-        return (item.key, HeroPresentation(media: media, titleImage: image))
+        return (item.key, HeroPresentation(media: media, titleImage: image,
+            metadataRevision: store.metadataRevision(for: [store.detailsCacheID(item)])))
     }
 }

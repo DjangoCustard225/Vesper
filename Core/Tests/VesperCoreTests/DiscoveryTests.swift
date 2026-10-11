@@ -242,7 +242,7 @@ final class DiscoveryTests: XCTestCase {
             return (200, Data(#"{"season_number":1,"episodes":[{"season_number":1,"episode_number":1,"still_path":"/episode.jpg"}]}"#.utf8))
         }
         let original = try media()
-        var mapped = original; mapped.imdbID = "tt123"
+        let mapped: MediaItem = { var value = original; value.imdbID = "tt123"; return value }()
         async let first = api.episodes(for: original, tmdbID: 42, season: 1, credential: key)
         async let second = api.episodes(for: mapped, tmdbID: 42, season: 1, credential: key)
         let (a, b) = try await (first, second)
@@ -303,18 +303,39 @@ final class DiscoveryTests: XCTestCase {
 }
 
 final class ConcurrentTMDBFixtureURLProtocol: URLProtocol {
+    private struct Work: @unchecked Sendable { let handler: (URLRequest) throws -> (Int, Data) }
+    private struct Owner: @unchecked Sendable { let value: ConcurrentTMDBFixtureURLProtocol }
+    private static let delivery = DispatchQueue(label: "VesperTests.TMDB.responses")
+    private let lock = NSRecursiveLock()
+    private var stopped = false
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
+        let work = Work(handler: FixtureURLProtocol.handler!)
+        let owner = Owner(value: self)
         DispatchQueue.global().async {
             do {
-                let (status, data) = try FixtureURLProtocol.handler!(self.request)
-                let response = HTTPURLResponse(url: self.request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
-                self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-                self.client?.urlProtocol(self, didLoad: data)
-                self.client?.urlProtocolDidFinishLoading(self)
-            } catch { self.client?.urlProtocol(self, didFailWithError: error) }
+                let (status, data) = try work.handler(owner.value.request)
+                let response = HTTPURLResponse(url: owner.value.request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+                // FoundationNetworking's mock protocol client requires serialized delivery.
+                // The request handlers still run concurrently to test independent fetching.
+                Self.delivery.async {
+                    let `self` = owner.value
+                    self.lock.lock(); defer { self.lock.unlock() }
+                    guard !self.stopped else { return }
+                    self.client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                    self.client?.urlProtocol(self, didLoad: data)
+                    self.client?.urlProtocolDidFinishLoading(self)
+                }
+            } catch {
+                Self.delivery.async {
+                    let `self` = owner.value
+                    self.lock.lock(); defer { self.lock.unlock() }
+                    guard !self.stopped else { return }
+                    self.client?.urlProtocol(self, didFailWithError: error)
+                }
+            }
         }
     }
-    override func stopLoading() { }
+    override func stopLoading() { lock.lock(); stopped = true; lock.unlock() }
 }

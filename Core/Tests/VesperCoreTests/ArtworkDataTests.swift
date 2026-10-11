@@ -45,14 +45,14 @@ final class ArtworkDataTests: XCTestCase {
         let calls = LockedRequestCounter()
         let client = client { _ in
             let attempt = calls.increment()
-            return attempt == 1 ? (503, Data("failure".utf8)) : (200, Data([1, 2, 3]))
+            return attempt <= 3 ? (503, Data("failure".utf8)) : (200, Data([1, 2, 3]))
         }
         do { _ = try await client.data(for: url); XCTFail("HTTP failure accepted") }
         catch { XCTAssertEqual((error as? URLError)?.code, .badServerResponse) }
         let retry = try await client.data(for: url)
         let cached = try await client.data(for: url)
         XCTAssertEqual(retry, Data([1, 2, 3])); XCTAssertEqual(cached, retry)
-        XCTAssertEqual(calls.value, 2)
+        XCTAssertEqual(calls.value, 4)
     }
     func testCancellingOneViewDoesNotCancelAnotherViewsArtwork() async throws {
         let calls = LockedRequestCounter()
@@ -66,6 +66,10 @@ final class ArtworkDataTests: XCTestCase {
         let first = Task { try await client.data(for: url) }
         await fulfillment(of: [started], timeout: 2)
         let second = Task { try await client.data(for: url) }
+        for _ in 0..<100 {
+            if await client.subscriberCount(for: url) == 2 { break }
+            await Task.yield()
+        }
         first.cancel()
         do { _ = try await first.value; XCTFail("Cancelled view received artwork") }
         catch { XCTAssertTrue(error is CancellationError) }

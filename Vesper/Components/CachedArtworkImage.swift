@@ -2,32 +2,53 @@ import SwiftUI
 import UIKit
 import VesperCore
 
+/// NSCache supports concurrent lookup; rendering never waits on the pipeline actor.
+private final class PreparedArtworkCache: @unchecked Sendable {
+    private let images = NSCache<NSURL, UIImage>()
+    init() { images.totalCostLimit = 96 * 1024 * 1024; images.countLimit = 120 }
+    func image(for url: URL) -> UIImage? { images.object(forKey: url as NSURL) }
+    func insert(_ image: UIImage, for url: URL) {
+        let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
+        images.setObject(image, forKey: url as NSURL, cost: cost)
+    }
+    func clear() { images.removeAllObjects() }
+}
+
 actor ArtworkPipeline {
     static let shared = ArtworkPipeline()
-    private let client = ArtworkDataClient()
-    private let memory = NSCache<NSURL, UIImage>()
-    private var requests: [URL: Task<UIImage, Error>] = [:]
-    private init() {
-        memory.totalCostLimit = 96 * 1024 * 1024
-        memory.countLimit = 120
-    }
-    func image(for url: URL) async throws -> UIImage {
-        if let image = memory.object(forKey: url as NSURL) { return image }
-        if let request = requests[url] { return try await request.value }
-        let client = client
-        let task = Task<UIImage, Error> {
-            let data = try await client.data(for: url)
-            guard let original = UIImage(data: data) else { throw URLError(.cannotDecodeContentData) }
-            return await original.byPreparingForDisplay() ?? original
-        }
-        requests[url] = task
-        do {
-            let image = try await task.value
-            let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
-            memory.setObject(image, forKey: url as NSURL, cost: cost)
-            requests[url] = nil
+    private nonisolated let client = ArtworkDataClient()
+    private nonisolated let memory = PreparedArtworkCache()
+    private let requests = SharedRequestPool<UIImage>()
+    private let preparation = PriorityRequestLimiter(limit: 2, prefetchLimit: 1)
+    private init() {}
+    nonisolated func cachedImage(for url: URL) -> UIImage? { memory.image(for: url) }
+    func clearMemory() async { memory.clear(); await client.clearMemory() }
+
+    func image(for url: URL, priority: ArtworkPriority = .visible) async throws -> UIImage {
+        try Task.checkCancellation()
+        if let image = memory.image(for: url) { return image }
+        let client = client, memory = memory, preparation = preparation
+        return try await requests.value(for: url.absoluteString, priority: priority, onPromotion: {
+            await client.promote(url)
+            await preparation.promote(url.absoluteString)
+        }) { demand in
+            let data = try await client.data(for: url, priority: demand.priority)
+            try Task.checkCancellation()
+            let image = try await preparation.run(key: url.absoluteString, demand: demand) {
+                guard let original = UIImage(data: data) else { throw URLError(.cannotDecodeContentData) }
+                return await original.byPreparingForDisplay() ?? original
+            }
+            try Task.checkCancellation()
+            memory.insert(image, for: url)
             return image
-        } catch { requests[url] = nil; throw error }
+        }
+    }
+    func prefetch(_ urls: [URL]) async {
+        var seen = Set<URL>()
+        let unique = urls.filter { seen.insert($0).inserted }
+        await ConcurrentWork.run(unique, limit: 2, operation: { url in
+            _ = try? await self.image(for: url, priority: .prefetch)
+        }, onResult: { _, _ in })
     }
 }
 
@@ -35,10 +56,19 @@ struct CachedArtworkImage<Content: View>: View {
     let url: URL?
     @ViewBuilder let content: (AsyncImagePhase) -> Content
     @State private var phase = AsyncImagePhase.empty
+    @State private var loadedURL: URL?
+    private var displayedPhase: AsyncImagePhase {
+        if let url, let image = ArtworkPipeline.shared.cachedImage(for: url) { return .success(Image(uiImage: image)) }
+        return loadedURL == url ? phase : .empty
+    }
     var body: some View {
-        content(phase).task(id: url) {
+        content(displayedPhase).task(id: url) {
+            loadedURL = url
+            guard let url else { phase = .empty; return }
+            if let image = ArtworkPipeline.shared.cachedImage(for: url) {
+                phase = .success(Image(uiImage: image)); return
+            }
             phase = .empty
-            guard let url else { return }
             do {
                 let image = try await ArtworkPipeline.shared.image(for: url)
                 guard !Task.isCancelled else { return }

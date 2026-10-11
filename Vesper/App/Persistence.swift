@@ -36,18 +36,8 @@ enum SecureStorage {
 }
 
 enum StorageError: LocalizedError {
-    case keychain, disk
-    var errorDescription: String? {
-        switch self {
-        case .keychain: "Couldn’t save securely. Unlock your device and try again."
-        case .disk: "Couldn’t save your library. Check available device storage."
-        }
-    }
-}
-
-struct LibraryState: Codable {
-    var items: [MediaItem] = []
-    var history: [WatchProgress] = []
+    case keychain
+    var errorDescription: String? { "Couldn’t save securely. Unlock your device and try again." }
 }
 
 enum LibraryStorage {
@@ -55,21 +45,16 @@ enum LibraryStorage {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Vesper/library.json")
     }
-    static func load() throws -> LibraryState {
-        if FileManager.default.fileExists(atPath: url.path) {
-            return try JSONDecoder().decode(LibraryState.self, from: Data(contentsOf: url))
+    static var repository: LibraryRepository { LibraryRepository(url: url) }
+    static func load() throws -> (state: LibraryState, recovered: Bool) {
+        if FileManager.default.fileExists(atPath: url.path) || FileManager.default.fileExists(atPath: repository.backupURL.path) {
+            return try repository.load()
         }
         let legacy = url.deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("SwiftStream/library.json")
-        guard FileManager.default.fileExists(atPath: legacy.path) else { return LibraryState() }
-        let state = try JSONDecoder().decode(LibraryState.self, from: Data(contentsOf: legacy))
-        try save(state)
-        return state
-    }
-    static func save(_ state: LibraryState) throws {
-        do {
-            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try JSONEncoder().encode(state).write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-        } catch { throw StorageError.disk }
+        guard FileManager.default.fileExists(atPath: legacy.path) else { return (LibraryState(), false) }
+        let state = try LibraryRepository.decode(Data(contentsOf: legacy))
+        try repository.save(state)
+        return (state, false)
     }
 }

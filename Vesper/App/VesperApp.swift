@@ -4,9 +4,16 @@ import VesperCore
 @main
 struct VesperApp: App {
     @State private var store = AppStore()
+    @Environment(\.scenePhase) private var scenePhase
     var body: some Scene {
         WindowGroup {
             RootView().environment(store).tint(.white).preferredColorScheme(.dark)
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .background { Task { await DiagnosticRecorder.shared.flush() } }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+                    Task { await ArtworkPipeline.shared.clearMemory() }
+                }
         }
     }
 }
@@ -32,7 +39,12 @@ struct RootView: View {
         .tabBarMinimizeBehavior(.onScrollDown)
         .scrollEdgeEffectHidden(true, for: .vertical)
         .task(id: store.addonSignature + store.tmdbRevision.uuidString) { await store.refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: .vesperMetadataUpdated)) { notification in
+            if let update = notification.object as? MetadataUpdate { store.metadataDidRefresh(update) }
+        }
         .onOpenURL { url in
+            // Ignore callbacks from player links created by older app versions.
+            if ["vesper", "swiftstream"].contains(url.scheme ?? ""), url.host == "player-return" { return }
             if url.scheme == "stremio" { store.incomingAddon = url.absoluteString; store.showInstall = true }
             else if ["vesper", "swiftstream"].contains(url.scheme ?? ""),
                     let value = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "url" })?.value {
@@ -64,7 +76,7 @@ struct RootView: View {
                     }
             }
         }
-        .alert("Couldn’t save", isPresented: Binding(get: { store.storageError != nil }, set: { if !$0 { store.storageError = nil } })) {
+        .alert("Storage", isPresented: Binding(get: { store.storageError != nil }, set: { if !$0 { store.storageError = nil } })) {
             Button("OK") { store.storageError = nil }
         } message: { Text(store.storageError ?? "") }
     }

@@ -1,4 +1,11 @@
+import Foundation
 import VesperCore
+
+struct MetadataChanges: Equatable {
+    let ids: Set<String>
+    let revision = UUID()
+    init(ids: Set<String> = []) { self.ids = ids }
+}
 
 struct CatalogFeed: Identifiable {
     let addon: InstalledAddon

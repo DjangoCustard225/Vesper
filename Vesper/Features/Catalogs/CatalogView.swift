@@ -4,13 +4,8 @@ import VesperCore
 struct CatalogView: View {
     @Environment(AppStore.self) private var store
     let feed: CatalogFeed
-    @State private var items: [MediaItem] = []
     @State private var genre = ""
-    @State private var loading = false
-    @State private var error: String?
-    @State private var canLoadMore = true
-    @State private var offset = 0
-    @State private var generation = UUID()
+    @State private var model = CatalogController()
     init(feed: CatalogFeed) {
         self.feed = feed
         _genre = State(initialValue: feed.catalog.defaultExtras["genre"] ?? "")
@@ -18,11 +13,11 @@ struct CatalogView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
-                MediaGrid(items: items, onNearEnd: requestNextPage)
-                if loading { ProgressView().padding() }
-                if let error { ErrorNotice(message: error) { Task { await load(reset: items.isEmpty) } } }
-                if !loading && items.isEmpty && error == nil { ContentUnavailableView("No titles found", systemImage: "film", description: Text("Try a different filter.")) }
-                if canLoadMore && !loading && !items.isEmpty && error == nil { AutoPaginationTrigger(load: requestNextPage).id(offset) }
+                MediaGrid(items: model.items, onNearEnd: requestNextPage)
+                if model.loading { ProgressView().padding() }
+                if let error = model.error { ErrorNotice(message: error) { Task { await model.loadMore() } } }
+                if !model.loading && model.items.isEmpty && model.error == nil { ContentUnavailableView("No titles found", systemImage: "film", description: Text("Try a different filter.")) }
+                if model.hasMore && !model.loading && !model.items.isEmpty && model.error == nil { AutoPaginationTrigger(load: requestNextPage).id(model.pageRevision) }
             }.padding(20).frame(maxWidth: 1100).frame(maxWidth: .infinity)
         }.appBackground().navigationTitle(feed.catalog.title).toolbar(.visible, for: .navigationBar)
             .toolbar {
@@ -37,30 +32,14 @@ struct CatalogView: View {
                     }
                 }
             }
-            .task(id: genre) { await load(reset: true) }
+            .task(id: genre + store.addonSignature + store.tmdbRevision.uuidString) {
+                await model.load(store.addonSource(feed, genre: genre))
+            }
+            .onChange(of: store.cacheChanges) { _, change in model.refresh(cacheIDs: change.ids) }
+            .onDisappear { model.cancel() }
     }
     private func requestNextPage() {
-        guard canLoadMore, !loading, error == nil, !items.isEmpty else { return }
-        Task { await load(reset: false) }
-    }
-    private func load(reset: Bool) async {
-        if reset { generation = UUID(); items = []; offset = 0; canLoadMore = true }
-        else if loading || !canLoadMore { return }
-        let current = generation
-        loading = true; error = nil
-        defer { if current == generation { loading = false } }
-        var extras = feed.catalog.defaultExtras
-        if !genre.isEmpty { extras["genre"] = genre }
-        if offset > 0 { extras["skip"] = String(offset) }
-        do {
-            let next = try await store.client.catalog(feed.addon, feed.catalog, extras: extras)
-            try Task.checkCancellation()
-            guard current == generation else { return }
-            let merged = CatalogPagination(existing: items, incoming: next, providerHasMore: feed.catalog.supports("skip"))
-            items = merged.items
-            offset += next.count
-            canLoadMore = merged.hasMore
-        } catch is CancellationError { }
-        catch { if current == generation { self.error = error.localizedDescription } }
+        guard model.hasMore, !model.loading, model.error == nil else { return }
+        Task { await model.loadMore() }
     }
 }

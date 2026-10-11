@@ -4,7 +4,6 @@ import VesperCore
 struct DetailView: View {
     @Environment(AppStore.self) private var store
     let item: MediaItem
-    var preferredVideoID: String? = nil
     var startPlayback = false
     @State private var didStartPlayback = false
     @State private var full: MediaItem?
@@ -80,7 +79,13 @@ struct DetailView: View {
             .toolbar(.visible, for: .navigationBar)
             .toolbarBackground(.hidden, for: .navigationBar)
             .task(id: item.key + store.tmdbRevision.uuidString) { await load() }
-            .task(id: "\(enrichment?.id ?? 0):\(season ?? -1):\(store.tmdbRevision)") { await loadSeason() }
+            .task(id: store.metadataRevision(for: [store.detailsCacheID(media)])) {
+                guard enrichment != nil else { return }
+                await enrich()
+            }
+            .task(id: "\(enrichment?.id ?? 0):\(season ?? -1):\(store.tmdbRevision):" + store.metadataRevision(for: [store.episodesCacheID(media, details: enrichment, season: season)])) {
+                await loadSeason(preserveExisting: !seasonEpisodes.isEmpty)
+            }
             .sheet(item: $selection) { video in StreamPickerView(media: media, video: video).presentationDragIndicator(.visible) }
             .sheet(isPresented: $showingAbout) {
                 AboutDescriptionView(title: media.name, description: media.description ?? "")
@@ -99,7 +104,7 @@ struct DetailView: View {
     @ViewBuilder private var titleActions: some View {
         if media.type == "series" && !isLive {
             VStack(spacing: 12) {
-                if media.behaviorHints?.defaultVideoId != nil || preferredVideoID != nil { playButton }
+                if media.behaviorHints?.defaultVideoId != nil { playButton }
                 Button { store.toggleLibrary(media) } label: {
                     Label(store.contains(media) ? "In Library" : "Add to Library", systemImage: store.contains(media) ? "checkmark" : "plus")
                         .font(.headline).padding(.horizontal, 20).frame(minHeight: 48).accentButtonForeground()
@@ -122,17 +127,13 @@ struct DetailView: View {
     }
     private var playButton: some View {
         Button { playDefault() } label: {
-            Label(resumeLabel, systemImage: "play.fill").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 9)
+            Label("Play", systemImage: "play.fill").font(.headline).frame(maxWidth: .infinity).padding(.vertical, 9)
                 .accentButtonForeground()
         }.buttonStyle(.glassProminent).disabled(loading || enriching)
     }
-    private var resumeLabel: String {
-        let id = preferredVideoID ?? media.behaviorHints?.defaultVideoId ?? media.playbackID
-        if let progress = store.progress(for: media, videoID: id), !progress.isFinished, progress.position > 5 { return "Resume" }
-        return "Play"
-    }
     private func playDefault() {
-        let id = isLive ? media.id : preferredVideoID ?? media.behaviorHints?.defaultVideoId ?? media.playbackID
+        let rawID = media.behaviorHints?.defaultVideoId ?? media.playbackID
+        let id = isLive ? media.id : MediaIdentity.videoID(rawID, for: media)
         let episode = media.videos?.first { $0.id == id }
         selection = VideoSelection(id: id, title: episode.map { $0.label + " · " + $0.displayTitle }, embedded: episode?.streams)
     }
@@ -141,8 +142,7 @@ struct DetailView: View {
         let (result, failure) = await store.metadata(for: item)
         guard !Task.isCancelled else { return }
         full = result; error = failure; loading = false
-        if let preferredVideoID, let episode = result.videos?.first(where: { $0.id == preferredVideoID }) { season = episode.season }
-        else if season == nil { season = seasons.first(where: { $0 > 0 }) ?? seasons.first }
+        if season == nil { season = seasons.first(where: { $0 > 0 }) ?? seasons.first }
         await enrich()
         startRequestedPlayback()
     }
@@ -156,17 +156,17 @@ struct DetailView: View {
             enrichment = result
             if let result {
                 full = result.applying(to: original)
-                if let preferredVideoID, let value = Int(preferredVideoID.split(separator: ":").dropLast().last ?? ""), result.seasons.contains(value) { season = value }
-                else if season == nil || !result.seasons.contains(season!) { season = result.seasons.first(where: { $0 > 0 }) ?? result.seasons.first }
+                if season == nil || !result.seasons.contains(season!) { season = result.seasons.first(where: { $0 > 0 }) ?? result.seasons.first }
             }
         } catch is CancellationError { return }
         catch { tmdbError = error.localizedDescription }
         enriching = false
         startRequestedPlayback()
     }
-    private func loadSeason() async {
+    private func loadSeason(preserveExisting: Bool = false) async {
         let request = UUID(); seasonRequestID = request
-        seasonEpisodes = []; seasonError = nil; seasonLoading = false
+        if !preserveExisting { seasonEpisodes = [] }
+        seasonError = nil; seasonLoading = false
         guard let enrichment, enrichment.mediaType == "tv", let season else { return }
         seasonLoading = true
         do {
@@ -180,16 +180,12 @@ struct DetailView: View {
     }
     private func startRequestedPlayback() {
         guard startPlayback, !didStartPlayback, !loading, !enriching, error == nil, tmdbError == nil else { return }
-        if media.type != "series" || isLive || preferredVideoID != nil || media.behaviorHints?.defaultVideoId != nil {
+        if media.type != "series" || isLive || media.behaviorHints?.defaultVideoId != nil {
             didStartPlayback = true
             playDefault()
         } else if let episode = episodes.first {
-            let resume = store.continueWatching.first { progress in
-                progress.media.isSameTitle(as: media) && episodes.contains { $0.id == progress.videoID }
-            }
-            let next = episodes.first { $0.id == resume?.videoID } ?? episode
             didStartPlayback = true
-            selection = VideoSelection(id: next.id, title: next.label + " · " + next.displayTitle, embedded: next.streams)
+            selection = VideoSelection(id: episode.id, title: episode.label + " · " + episode.displayTitle, embedded: episode.streams)
         }
     }
     private var episodeSection: some View {

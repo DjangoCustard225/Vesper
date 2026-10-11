@@ -128,6 +128,8 @@ struct MediaGrid: View {
     let items: [MediaItem]
     var onNearEnd: (() -> Void)? = nil
     var onSelect: ((MediaItem) -> Void)? = nil
+    @State private var prefetch = PosterPrefetchState()
+    private var prefetchURLs: [URL] { prefetch.urls(items) }
     var body: some View {
         LazyVGrid(columns: Design.columns, alignment: .leading, spacing: 16) {
             ForEach(Array(items.enumerated()), id: \.element.key) { index, item in
@@ -138,9 +140,14 @@ struct MediaGrid: View {
                         NavigationLink { DetailView(item: item) } label: { PosterCard(item: item) }
                     }
                 }.buttonStyle(.plain)
+                    .onScrollVisibilityChange(threshold: 0.01) { visible in
+                        prefetch.visibility(visible, key: item.key, items: items)
+                    }
                     .onAppear { if index >= items.count - 6 { onNearEnd?() } }
             }
         }
+        .task(id: prefetchURLs) { await ArtworkPipeline.shared.prefetch(prefetchURLs) }
+        .onDisappear { prefetch.reset() }
     }
 }
 

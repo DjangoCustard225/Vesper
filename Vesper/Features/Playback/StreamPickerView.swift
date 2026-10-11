@@ -7,9 +7,12 @@ struct StreamPickerView: View {
     @Environment(\.openURL) private var openURL
     let media: MediaItem
     let video: VideoSelection
-    @State private var result = StreamResults()
-    @State private var loading = true
+    @State private var model = StreamLoadingController()
+    private var result: StreamResults { model.result }
+    private var loading: Bool { model.loading }
     @State private var error: String?
+    @State private var launchTask: Task<Void, Never>?
+    @State private var launching = false
     var body: some View {
         @Bindable var store = store
         NavigationStack {
@@ -37,10 +40,11 @@ struct StreamPickerView: View {
                 if !result.options.isEmpty {
                     Text("Available sources").font(.headline).padding(.horizontal, 2).padding(.top, 12).padding(.bottom, 4)
                     ForEach(result.options) { option in
-                        SourceResultCard(option: option) { play(option.source) }
+                        SourceResultCard(option: option) { play(option) }
+                        .disabled(launching)
                         .contextMenu {
                             ForEach(VideoPlayer.allCases) { player in
-                                Button("Play in \(player.title)", systemImage: "play") { play(option.source, player: player) }
+                                Button("Play in \(player.title)", systemImage: "play") { play(option, player: player) }
                             }
                         }
                         .modifier(SourceCardScrollEffect())
@@ -55,28 +59,39 @@ struct StreamPickerView: View {
                 }
             }.navigationTitle("Choose a stream").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-                .task(id: video.id) { await load() }
+                .task(id: video.id + store.addonSignature) { await load() }
+                .onChange(of: store.addonSignature) { _, _ in launchTask?.cancel() }
+                .onDisappear { model.cancel(); launchTask?.cancel() }
                 .alert("Unable to play", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) { Button("OK") { error = nil } } message: { Text(error ?? "") }
         }
     }
     private func load() async {
-        loading = true
-        let next = await store.streamOptions(type: media.type, videoID: video.id, embedded: video.embedded) { partial in
-            guard !Task.isCancelled else { return }
-            result = partial
-            if !partial.options.isEmpty { loading = false }
+        await model.load(key: media.type + ":" + video.id + store.addonSignature) { update in
+            await store.streamOptions(type: media.type, videoID: video.id, embedded: video.embedded, onUpdate: update)
         }
-        guard !Task.isCancelled else { return }
-        result = next; loading = false
     }
-    private func play(_ source: StreamSource, player: VideoPlayer? = nil) {
+    private func play(_ option: StreamOption, player: VideoPlayer? = nil) {
+        guard !launching else { return }
+        launching = true
+        launchTask = Task {
+            defer { launching = false }
+            do {
+                let source = try await store.freshSource(option, type: media.type, videoID: video.id)
+                try Task.checkCancellation()
+                open(source, player: player)
+            } catch is CancellationError { }
+            catch {
+                self.error = error.localizedDescription
+                if error is PlaybackError { await load() }
+            }
+        }
+    }
+    private func open(_ source: StreamSource, player: VideoPlayer?) {
         do {
-            switch try StreamResolver.resolve(source, server: store.streamingServer) {
+            switch try StreamResolver.resolve(source) {
             case .native(let url):
                 let player = player ?? store.preferredPlayer
-                let progress = store.progress(for: media, videoID: video.id)
-                let position = progress?.isFinished == false ? progress?.position ?? 0 : 0
-                let launch = try player.launchURL(for: url, position: position)
+                let launch = try player.launchURL(for: url)
                 openURL(launch) { accepted in
                     if !accepted { error = "Couldn’t open \(player.title). Install it or select another player." }
                 }

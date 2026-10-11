@@ -4,7 +4,7 @@ import FoundationNetworking
 #endif
 
 public enum AddonError: LocalizedError, Equatable {
-    case invalidURL, invalidManifest, configurationRequired, http(Int), invalidResponse, network, unsupportedStream, serverRequired, invalidTorrent
+    case invalidURL, invalidManifest, configurationRequired, http(Int), invalidResponse, network, unsupportedStream
     public var errorDescription: String? {
         switch self {
         case .invalidURL: "Enter a valid HTTP or HTTPS URL."
@@ -13,9 +13,7 @@ public enum AddonError: LocalizedError, Equatable {
         case .http(let status): "The add-on returned HTTP \(status). Try again or check its configuration."
         case .invalidResponse: "The add-on returned an unreadable response."
         case .network: "Couldn’t connect. Check your connection and the add-on address."
-        case .unsupportedStream: "This source can’t play in the native player. Choose an HTTP video source or an external link."
-        case .serverRequired: "Set your Stremio streaming server in Settings to play this source."
-        case .invalidTorrent: "The add-on returned an invalid torrent hash or file index."
+        case .unsupportedStream: "This source can’t be opened in an external player. Choose an HTTP video source or an external link."
         }
     }
 }
@@ -66,48 +64,76 @@ private extension String {
 
 public final class AddonClient: @unchecked Sendable {
     private let session: URLSession
-    public init(session: URLSession? = nil) {
+    private let transport: HTTPTransport
+    private let cache: ResponseCache?
+    private let limiter = RequestLimiter()
+    private let metadataRequests = SharedRequestPool<Data>()
+    public init(session: URLSession? = nil, cache: ResponseCache? = nil, retryPolicy: RetryPolicy = RetryPolicy()) {
         if let session { self.session = session } else {
             let config = URLSessionConfiguration.ephemeral
             config.timeoutIntervalForRequest = 25
             config.timeoutIntervalForResource = 40
             config.httpCookieStorage = nil
+            config.httpMaximumConnectionsPerHost = 4
             self.session = URLSession(configuration: config)
         }
+        self.cache = cache
+        transport = HTTPTransport(session: self.session, policy: retryPolicy, requestTimeout: 25)
     }
-    public func data(from url: URL) async throws -> Data {
+    public func data(from url: URL, operation: NetworkOperation = .metadata) async throws -> Data {
         do {
             _ = try AddonURL.http(url.absoluteString)
             var request = URLRequest(url: url)
             request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
-            let (data, response) = try await session.data(for: request)
+            let transport = transport, boundedRequest = request
+            let fetch: @Sendable () async throws -> Data = { [limiter] in
+                let (data, response) = try await limiter.run { try await transport.data(for: boundedRequest, operation: operation) }
+                try Task.checkCancellation()
+                guard (200..<300).contains(response.statusCode) else { throw AddonError.http(response.statusCode) }
+                guard data.count <= 12_000_000 else { throw AddonError.invalidResponse }
+                return data
+            }
+            let data: Data
+            if operation == .catalog || operation == .metadata {
+                data = try await metadataRequests.value(for: url.absoluteString, operation: fetch)
+            } else { data = try await fetch() }
             try Task.checkCancellation()
-            guard let response = response as? HTTPURLResponse else { throw AddonError.invalidResponse }
-            guard (200..<300).contains(response.statusCode) else { throw AddonError.http(response.statusCode) }
-            guard data.count <= 12_000_000 else { throw AddonError.invalidResponse }
             return data
         } catch is CancellationError { throw CancellationError() }
         catch let error as URLError where error.code == .cancelled { throw CancellationError() }
         catch let error as AddonError { throw error }
         catch { throw AddonError.network }
     }
-    public func fetch<T: Decodable>(_ type: T.Type, from url: URL) async throws -> T {
-        let data = try await data(from: url)
+    public func fetch<T: Decodable>(_ type: T.Type, from url: URL, operation: NetworkOperation = .metadata) async throws -> T {
+        let data = try await data(from: url, operation: operation)
         do { return try JSONDecoder().decode(type, from: data) }
         catch { throw AddonError.invalidResponse }
     }
     public func install(_ input: String) async throws -> InstalledAddon {
         let url = try AddonURL.manifest(input)
         let manifest: AddonManifest
-        do { manifest = try await fetch(AddonManifest.self, from: url) }
+        do { manifest = try await fetch(AddonManifest.self, from: url, operation: .manifest) }
         catch AddonError.invalidResponse { throw AddonError.invalidManifest }
         guard !manifest.id.isEmpty, !manifest.name.isEmpty, !manifest.version.isEmpty, !manifest.resources.isEmpty else { throw AddonError.invalidManifest }
         guard manifest.behaviorHints?.configurationRequired != true else { throw AddonError.configurationRequired }
         return InstalledAddon(manifestURL: url, manifest: manifest)
     }
-    public func catalog(_ addon: InstalledAddon, _ catalog: AddonCatalog, extras: [String: String] = [:]) async throws -> [MediaItem] {
+    public func catalog(_ addon: InstalledAddon, _ catalog: AddonCatalog, extras: [String: String] = [:], refresh: Bool = false) async throws -> [MediaItem] {
         let url = try AddonURL.resource(manifest: addon.manifestURL, resource: "catalog", type: catalog.type, id: catalog.id, extras: extras)
-        return try await fetch(CatalogResponse.self, from: url).metas
+        let key = try MetadataCacheKey.addonCatalog(addon, catalog, extras: extras)
+        if !refresh, let cache, let cached = await cache.value([MediaItem].self, key: key, ttl: 300) {
+            if !cached.isFresh {
+                await cache.refresh(key: key) { [self] in _ = try await self.catalog(addon, catalog, extras: extras, refresh: true) }
+            }
+            return cached.value
+        }
+        let token = await cache?.token()
+        let items = try await fetch(CatalogResponse.self, from: url, operation: .catalog).metas
+        try Task.checkCancellation()
+        // Stream links expire and must always be fetched from their provider on demand.
+        let compact = items.map { item -> MediaItem in var value = item; value.videos = nil; return value }
+        await cache?.save(compact, key: key, token: token)
+        return items
     }
     public func meta(_ addon: InstalledAddon, item: MediaItem) async throws -> MediaItem? {
         let url = try AddonURL.resource(manifest: addon.manifestURL, resource: "meta", type: item.type, id: item.id)
@@ -115,56 +141,25 @@ public final class AddonClient: @unchecked Sendable {
     }
     public func streams(_ addon: InstalledAddon, type: String, videoID: String) async throws -> [StreamSource] {
         let url = try AddonURL.resource(manifest: addon.manifestURL, resource: "stream", type: type, id: videoID)
-        return try await fetch(StreamResponse.self, from: url).streams
+        return try await fetch(StreamResponse.self, from: url, operation: .streams).streams
     }
-    public func subtitles(_ addon: InstalledAddon, type: String, videoID: String, stream: StreamSource) async throws -> [SubtitleSource] {
-        var extras: [String: String] = [:]
-        if let hash = stream.behaviorHints?.videoHash { extras["videoHash"] = hash }
-        if let size = stream.behaviorHints?.videoSize { extras["videoSize"] = String(size) }
-        if let filename = stream.behaviorHints?.filename { extras["filename"] = filename }
-        let url = try AddonURL.resource(manifest: addon.manifestURL, resource: "subtitles", type: type,
-            id: videoID, extras: extras)
-        return try await fetch(SubtitleResponse.self, from: url).subtitles
-    }
+
 }
 
 public enum PlaybackDestination: Equatable { case native(URL), external(URL) }
 
 public enum StreamResolver {
-    public static func resolve(_ stream: StreamSource, server: String) throws -> PlaybackDestination {
+    public static func resolve(_ stream: StreamSource) throws -> PlaybackDestination {
         if let external = stream.externalUrl { return .external(try AddonURL.http(external)) }
         if let ytID = stream.ytId {
             return .external(try AddonURL.http("https://www.youtube.com/watch?v=" + AddonURL.encode(ytID)))
         }
         if let raw = stream.url {
             let url = try AddonURL.http(raw)
-            guard let headers = stream.behaviorHints?.proxyHeaders,
-                  !(headers.request ?? [:]).isEmpty || !(headers.response ?? [:]).isEmpty else { return .native(url) }
-            guard !server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw AddonError.serverRequired }
-            let base = try AddonURL.http(server)
-            guard var proxy = URLComponents(url: base, resolvingAgainstBaseURL: false),
-                  var origin = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw AddonError.invalidURL }
-            origin.path = ""; origin.query = nil; origin.fragment = nil
-            var parameters = ["d=" + AddonURL.encode(origin.string ?? "")]
-            parameters += (headers.request ?? [:]).sorted { $0.key < $1.key }.map { "h=" + AddonURL.encode($0.key + ":" + $0.value) }
-            parameters += (headers.response ?? [:]).sorted { $0.key < $1.key }.map { "r=" + AddonURL.encode($0.key + ":" + $0.value) }
-            let source = URLComponents(url: url, resolvingAgainstBaseURL: false)!
-            proxy.percentEncodedPath = proxy.percentEncodedPath.trimmingSuffix("/") + "/proxy/" + parameters.joined(separator: "&") + source.percentEncodedPath
-            proxy.percentEncodedQuery = source.percentEncodedQuery
-            proxy.fragment = nil
-            guard let result = proxy.url else { throw AddonError.invalidURL }
-            return .native(result)
-        }
-        if let hash = stream.infoHash {
-            guard hash.count == 40, hash.allSatisfy({ $0.isHexDigit }), stream.fileIdx == nil || stream.fileIdx! >= 0 else { throw AddonError.invalidTorrent }
-            guard !server.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw AddonError.serverRequired }
-            let base = try AddonURL.http(server)
-            guard var c = URLComponents(url: base, resolvingAgainstBaseURL: false) else { throw AddonError.invalidURL }
-            c.percentEncodedPath = c.percentEncodedPath.trimmingSuffix("/") + "/\(hash.lowercased())/\(stream.fileIdx ?? -1)"
-            let trackers = (stream.sources ?? []).filter { $0.hasPrefix("tracker:") }.map { URLQueryItem(name: "tr", value: String($0.dropFirst(8))) }
-            c.queryItems = (c.queryItems ?? []) + trackers
-            c.fragment = nil
-            guard let url = c.url else { throw AddonError.invalidURL }
+            if let headers = stream.behaviorHints?.proxyHeaders,
+               !(headers.request ?? [:]).isEmpty || !(headers.response ?? [:]).isEmpty {
+                throw AddonError.unsupportedStream
+            }
             return .native(url)
         }
         throw AddonError.unsupportedStream

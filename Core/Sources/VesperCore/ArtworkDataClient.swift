@@ -6,7 +6,8 @@ import FoundationNetworking
 public actor ArtworkDataClient {
     private let session: URLSession
     private let memory = NSCache<NSURL, NSData>()
-    private var requests: [URL: Task<Data, Error>] = [:]
+    private let requests = SharedRequestPool<Data>()
+    private let limiter = PriorityRequestLimiter(limit: 4, prefetchLimit: 2)
     public init(session: URLSession? = nil) {
         if let session { self.session = session }
         else {
@@ -23,33 +24,34 @@ public actor ArtworkDataClient {
     }
     deinit { session.invalidateAndCancel() }
 
-    public func data(for url: URL) async throws -> Data {
+    public func clearMemory() { memory.removeAllObjects() }
+    func subscriberCount(for url: URL) async -> Int { await requests.subscriberCount(for: url.absoluteString) }
+    public func promote(_ url: URL) async {
+        await requests.promote(url.absoluteString)
+        await limiter.promote(url.absoluteString)
+    }
+    public func data(for url: URL, priority: ArtworkPriority = .visible) async throws -> Data {
         _ = try AddonURL.http(url.absoluteString)
         try Task.checkCancellation()
         if let data = memory.object(forKey: url as NSURL) { return data as Data }
-        if let task = requests[url] {
-            let data = try await task.value
-            try Task.checkCancellation()
-            return data
-        }
-        let session = session
-        let task = Task<Data, Error> {
-            let (data, response) = try await session.data(from: url)
-            guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode), !data.isEmpty else {
-                throw URLError(.badServerResponse)
+        let session = session, limiter = limiter
+        return try await requests.value(for: url.absoluteString, priority: priority,
+                                       onPromotion: { await limiter.promote(url.absoluteString) }) { demand in
+            let data = try await limiter.run(key: url.absoluteString, demand: demand) {
+                let (data, response) = try await HTTPTransport(session: session, requestTimeout: 20)
+                    .data(for: URLRequest(url: url), operation: .artwork)
+                try Task.checkCancellation()
+                guard (200..<300).contains(response.statusCode), !data.isEmpty, data.count <= 30 * 1024 * 1024 else {
+                    throw URLError(.badServerResponse)
+                }
+                return data
             }
-            return data
-        }
-        requests[url] = task
-        do {
-            let data = try await task.value
-            memory.setObject(data as NSData, forKey: url as NSURL, cost: data.count)
-            requests[url] = nil
             try Task.checkCancellation()
+            await self.finished(url, data: data)
             return data
-        } catch {
-            requests[url] = nil
-            throw error
         }
+    }
+    private func finished(_ url: URL, data: Data) {
+        memory.setObject(data as NSData, forKey: url as NSURL, cost: data.count)
     }
 }

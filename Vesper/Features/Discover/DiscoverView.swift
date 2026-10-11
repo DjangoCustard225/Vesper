@@ -15,22 +15,6 @@ struct DiscoverView: View {
                 if store.isLoading && store.feeds.isEmpty && store.tmdbFeeds.isEmpty {
                     ProgressView("Finding your next watch…").frame(maxWidth: .infinity).padding(.vertical, 100)
                 }
-                if !store.continueWatching.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Continue watching").font(.title2.bold()).padding(.horizontal, 20)
-                        ScrollView(.horizontal) {
-                            LazyHStack(spacing: 14) {
-                                ForEach(store.continueWatching.prefix(12)) { progress in
-                                    NavigationLink { DetailView(item: progress.media, preferredVideoID: progress.videoID) } label: {
-                                        ContinueCard(progress: progress)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .contextMenu { Button("Remove from continue watching", role: .destructive) { store.removeProgress(progress) } }
-                                }
-                            }.padding(.horizontal, 20)
-                        }.scrollIndicators(.hidden).appScrollEdges()
-                    }
-                }
                 if store.tmdbCredential == nil {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Discover with TMDB").font(.title2.bold())
@@ -49,17 +33,12 @@ struct DiscoverView: View {
                         }.padding(.horizontal, 20)
                         if let error = feed.error {
                             ErrorNotice(message: error) { Task { await store.refresh() } }.padding(.horizontal, 20)
-                        } else if feed.items.isEmpty {
+                        }
+                        if feed.items.isEmpty && feed.error == nil {
                             if store.isLoading { ProgressView().padding(.horizontal, 20) }
                             else { Text("No titles in this catalog yet.").font(.subheadline).foregroundStyle(.secondary).padding(.horizontal, 20) }
-                        } else {
-                            ScrollView(.horizontal) {
-                                LazyHStack(alignment: .top, spacing: Design.posterSpacing) {
-                                    ForEach(feed.items.prefix(20), id: \.key) { item in
-                                        NavigationLink { DetailView(item: item) } label: { PosterCard(item: item, width: Design.posterWidth) }.buttonStyle(.plain)
-                                    }
-                                }.padding(.horizontal, 20)
-                            }.scrollIndicators(.hidden).appScrollEdges()
+                        } else if !feed.items.isEmpty {
+                            PosterShelf(items: Array(feed.items.prefix(20)))
                         }
                     }
                 }
@@ -93,7 +72,7 @@ struct FeaturedCard: View {
                 }.buttonStyle(.plain).accessibilityLabel("Details for \(media.name)")
                 HStack(spacing: 12) {
                     NavigationLink {
-                        DetailView(item: media, preferredVideoID: store.continueWatching.first { $0.media.isSameTitle(as: media) }?.videoID, startPlayback: true)
+                        DetailView(item: media, startPlayback: true)
                     } label: {
                         Label("Play", systemImage: "play.fill")
                             .font(.headline).padding(.horizontal, 30).frame(minHeight: 48)
@@ -110,20 +89,5 @@ struct FeaturedCard: View {
             }.padding(.horizontal, 24).padding(.bottom, 24)
         }
         .frame(height: Design.heroHeight)
-    }
-}
-
-struct ContinueCard: View {
-    let progress: WatchProgress
-    var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            Color.clear.frame(height: 126)
-                .overlay { Artwork(url: progress.media.background ?? progress.media.poster) }
-                .overlay { Image(systemName: "play.circle.fill").font(.largeTitle).symbolRenderingMode(.palette).foregroundStyle(.white, .black.opacity(0.5)) }
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .overlay(alignment: .bottom) { ProgressView(value: progress.fraction).padding(.horizontal, 10).padding(.bottom, 8) }
-        }.frame(width: 224).accessibilityElement(children: .ignore)
-            .accessibilityLabel(progress.media.name)
-            .accessibilityValue(progress.episodeTitle ?? "\(Int(progress.position / 60)) min watched")
     }
 }
