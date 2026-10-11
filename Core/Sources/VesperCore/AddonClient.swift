@@ -121,18 +121,20 @@ public final class AddonClient: @unchecked Sendable {
     public func catalog(_ addon: InstalledAddon, _ catalog: AddonCatalog, extras: [String: String] = [:], refresh: Bool = false) async throws -> [MediaItem] {
         let url = try AddonURL.resource(manifest: addon.manifestURL, resource: "catalog", type: catalog.type, id: catalog.id, extras: extras)
         let key = try MetadataCacheKey.addonCatalog(addon, catalog, extras: extras)
-        if !refresh, let cache, let cached = await cache.value([MediaItem].self, key: key, ttl: 300) {
+        // Search follows the live add-on catalog path from 0.1.
+        let catalogCache = extras["search"] == nil ? cache : nil
+        if !refresh, let cache = catalogCache, let cached = await cache.value([MediaItem].self, key: key, ttl: 300) {
             if !cached.isFresh {
                 await cache.refresh(key: key) { [self] in _ = try await self.catalog(addon, catalog, extras: extras, refresh: true) }
             }
             return cached.value
         }
-        let token = await cache?.token()
+        let token = await catalogCache?.token()
         let items = try await fetch(CatalogResponse.self, from: url, operation: .catalog).metas
         try Task.checkCancellation()
         // Stream links expire and must always be fetched from their provider on demand.
         let compact = items.map { item -> MediaItem in var value = item; value.videos = nil; return value }
-        await cache?.save(compact, key: key, token: token)
+        await catalogCache?.save(compact, key: key, token: token)
         return items
     }
     public func meta(_ addon: InstalledAddon, item: MediaItem) async throws -> MediaItem? {

@@ -213,6 +213,10 @@ final class AppStore {
         guard revision == tmdbRevision else { throw CancellationError() }
         return result
     }
+    nonisolated static func unique(_ items: [MediaItem]) -> [MediaItem] {
+        var keys = Set<String>()
+        return items.filter { keys.insert($0.key).inserted }
+    }
     func episodes(for media: MediaItem, details: TMDBEnrichment, season: Int) async throws -> [Episode] {
         guard let credential = tmdbCredential else { throw TMDBError.invalidCredential }
         let revision = tmdbRevision

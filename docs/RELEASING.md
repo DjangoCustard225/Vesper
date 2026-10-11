@@ -18,11 +18,12 @@ Keep credentials, signing material, binaries, and generated build files out of G
 Set `release_version` to the new version in `Info.plist`. The repository already exists; never recreate it or replace a published tag or asset.
 
 ```sh
-release_version=0.2 # Example; use the version being released.
-git tag -a "$release_version" -m "Vesper $release_version"
+release_version=0.2.1 # Example; use the version being released.
+release_tag="v$release_version"
+git tag -a "$release_tag" -m "Vesper $release_version"
 git push origin main
-git push origin "$release_version"
-gh release create "$release_version" xtool/Vesper.ipa xtool/SHA256SUMS.txt \
+git push origin "$release_tag"
+gh release create "$release_tag" xtool/Vesper.ipa xtool/SHA256SUMS.txt \
   --repo DjangoCustard225/Vesper --verify-tag --draft \
   --title "Vesper $release_version" --notes-file "docs/releases/$release_version.md"
 ```
@@ -30,7 +31,7 @@ gh release create "$release_version" xtool/Vesper.ipa xtool/SHA256SUMS.txt \
 Check that the draft points to the tested source and contains the verified IPA, then publish:
 
 ```sh
-gh release edit "$release_version" --repo DjangoCustard225/Vesper --draft=false --latest
+gh release edit "$release_tag" --repo DjangoCustard225/Vesper --draft=false --latest
 ```
 
 The IPA is unsigned and requires signing before installation. Download both assets and run `shasum -a 256 -c SHA256SUMS.txt` to verify the download.

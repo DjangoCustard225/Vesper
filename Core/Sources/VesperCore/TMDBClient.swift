@@ -532,16 +532,19 @@ extension TMDBClient {
         use(credential)
         let parameters = query + [URLQueryItem(name: "page", value: String(page)), URLQueryItem(name: "language", value: "en-US")]
         let cacheKey = try Self.request(path: path, query: parameters, credential: credential).url!.absoluteString
+        // Search keeps only the short-lived memory cache used in 0.1. Persisted
+        // result pages must not replace a fresh query after an app update/restart.
+        let listingDiskCache = path.first == "search" ? nil : diskCache
         if !refresh, let (date, value) = listingCache[cacheKey], Date().timeIntervalSince(date) < 300 { return value }
         let diskKey = try MetadataCacheKey.listing(credential: credential, path: path, page: page, query: query)
-        if !refresh, let diskCache, let cached = await diskCache.value(TMDBPage.self, key: diskKey, ttl: 300) {
+        if !refresh, let diskCache = listingDiskCache, let cached = await diskCache.value(TMDBPage.self, key: diskKey, ttl: 300) {
             if !cached.isFresh {
                 await diskCache.refresh(key: diskKey) { [self] in _ = try await self.listing(path: path, type: type, page: page, query: query, credential: credential, refresh: true) }
             }
             try Task.checkCancellation()
             return cached.value
         }
-        let token = await diskCache?.token()
+        let token = await listingDiskCache?.token()
         async let configuration = imageConfiguration(credential: credential)
         guard let result = try await fetch(TMDBListing.self, path: path,
             query: parameters, credential: credential),
@@ -554,7 +557,7 @@ extension TMDBClient {
         listingCache = listingCache.filter { Date().timeIntervalSince($0.value.0) < 300 }
         if listingCache.count >= 100, let oldest = listingCache.min(by: { $0.value.0 < $1.value.0 })?.key { listingCache[oldest] = nil }
         listingCache[cacheKey] = (Date(), value)
-        await diskCache?.save(value, key: diskKey, token: token)
+        await listingDiskCache?.save(value, key: diskKey, token: token)
         return value
     }
     public func episodes(for media: MediaItem, tmdbID: Int, season: Int, credential input: String, refresh: Bool = false) async throws -> [Episode] {

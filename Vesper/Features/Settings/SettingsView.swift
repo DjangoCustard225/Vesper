@@ -100,10 +100,16 @@ struct TMDBSettingsView: View {
 }
 
 struct AppAboutView: View {
+    private var version: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let release = info["CFBundleShortVersionString"] as? String ?? ""
+        guard let build = info["CFBundleVersion"] as? String else { return release }
+        return "\(release) (\(build))"
+    }
     var body: some View {
         Form {
             Section {
-                LabeledContent("Vesper", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")
+                LabeledContent("Vesper", value: version)
                 LabeledContent("Designed for", value: "iOS 27")
             }
             Section {

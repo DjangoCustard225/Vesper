@@ -58,6 +58,50 @@ final class CachedClientTests: XCTestCase {
         let cachedEpisodes = try await restarted.episodes(for: show, tmdbID: 42, season: 1, credential: key)
         XCTAssertEqual(cachedListing.items, listing.items); XCTAssertEqual(cachedDetails, details); XCTAssertEqual(cachedEpisodes, episodes)
     }
+    func testSearchUsesMultiEndpointProviderOrderAndMemoryCacheFrom01() async throws {
+        let config = configuration, calls = LockedRequestCounter()
+        FixtureURLProtocol.handler = { request in
+            if request.url!.path == "/3/configuration" { return (200, Data(config.utf8)) }
+            XCTAssertEqual(request.url!.path, "/3/search/multi")
+            let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!.queryItems!
+            XCTAssertEqual(query.first { $0.name == "query" }?.value, "titanic")
+            XCTAssertEqual(query.first { $0.name == "include_adult" }?.value, "false")
+            calls.increment()
+            return (200, Data(#"{"page":1,"total_pages":1,"results":[{"id":16535,"media_type":"movie","title":"Titanic","popularity":2},{"id":597,"media_type":"movie","title":"Titanic","release_date":"1997-12-19","popularity":60},{"id":40161,"media_type":"tv","name":"Titanic: Blood and Steel","popularity":1}]}"#.utf8))
+        }
+        let cache = ResponseCache(directory: directory)
+        let searchKey = try MetadataCacheKey.search("titanic", page: 1, credential: key)
+        await cache.save(TMDBPage(items: [], page: 1, totalPages: 0), key: searchKey)
+        let api = TMDBClient(session: session(), cache: cache)
+        let result = try await api.search("titanic", credential: key)
+        XCTAssertEqual(result.items.map(\.id), ["tmdb:movie:16535", "tmdb:movie:597", "tmdb:tv:40161"])
+        XCTAssertEqual(result.items.map(\.type), ["movie", "movie", "series"])
+        XCTAssertEqual(result.items[1].releaseInfo, "1997")
+        _ = try await api.search("titanic", credential: key)
+        XCTAssertEqual(calls.value, 1)
+        let restarted = TMDBClient(session: session(), cache: cache)
+        let fresh = try await restarted.search("titanic", credential: key)
+        XCTAssertEqual(fresh.items, result.items)
+        XCTAssertEqual(calls.value, 2)
+    }
+    func testAddonSearchIgnoresPersistedPagesAndPreservesProviderOrder() async throws {
+        let manifest = try JSONDecoder().decode(AddonManifest.self, from: Data(#"{"id":"test","name":"Test","version":"1","resources":["catalog"],"types":["movie"],"catalogs":[{"id":"popular","type":"movie"}]}"#.utf8))
+        let addon = InstalledAddon(manifestURL: URL(string: "https://provider.example/manifest.json")!, manifest: manifest)
+        let cache = ResponseCache(directory: directory), extras = ["search": "wolf of wall street"]
+        let searchKey = try MetadataCacheKey.addonCatalog(addon, manifest.catalogs[0], extras: extras)
+        await cache.save([MediaItem(id: "cached", type: "movie", name: "Old result")], key: searchKey)
+        let calls = LockedRequestCounter()
+        FixtureURLProtocol.handler = { request in
+            XCTAssertEqual(request.url!.absoluteString, "https://provider.example/catalog/movie/popular/search=wolf%20of%20wall%20street.json")
+            calls.increment()
+            return (200, Data(#"{"metas":[{"id":"tt0993846","type":"movie","name":"The Wolf of Wall Street"},{"id":"tt0021542","type":"movie","name":"The Wolf of Wall Street (1929)"}]}"#.utf8))
+        }
+        let api = AddonClient(session: session(), cache: cache)
+        let result = try await api.catalog(addon, manifest.catalogs[0], extras: extras)
+        XCTAssertEqual(result.map(\.id), ["tt0993846", "tt0021542"])
+        _ = try await api.catalog(addon, manifest.catalogs[0], extras: extras)
+        XCTAssertEqual(calls.value, 2)
+    }
     func testStaleCatalogReturnsImmediatelyThenRevalidatesAndPublishesNewData() async throws {
         fixture()
         let cache = ResponseCache(directory: directory)
