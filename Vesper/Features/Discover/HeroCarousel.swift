@@ -5,6 +5,20 @@ struct HeroPresentation {
     let media: MediaItem
     let titleImage: Image?
     let metadataRevision: String
+
+    @MainActor static func prepare(_ item: MediaItem, store: AppStore) async -> HeroPresentation {
+        var media = item
+        var image: Image?
+        if let details = try? await store.enrichedMetadata(for: item), !Task.isCancelled {
+            media = details.applying(to: item)
+            if let value = details.titleLogoURL, let url = try? AddonURL.http(value),
+               let prepared = try? await ArtworkPipeline.shared.image(for: url), !Task.isCancelled {
+                image = Image(uiImage: prepared)
+            }
+        }
+        return HeroPresentation(media: media, titleImage: image,
+            metadataRevision: store.metadataRevision(for: [store.detailsCacheID(item)]))
+    }
 }
 
 struct HeroCarousel: View {
@@ -40,7 +54,7 @@ struct HeroCarousel: View {
             if !keys.contains(selectedID ?? "") { selectedID = keys.first; horizontalOffset = 0 }
         }
         .task(id: items.map(\.key).joined(separator: "|") + store.tmdbRevision.uuidString + store.metadataRevision(for: items.map { store.detailsCacheID($0) })) { await prepareTitles() }
-        .task(id: nearbyArtwork) { await ArtworkPipeline.shared.prefetch(nearbyArtwork) }
+        .prefetchArtwork(nearbyArtwork)
         .overlay(alignment: .bottom) {
             if items.count > 1 {
                 HStack(spacing: 2) {
@@ -82,16 +96,6 @@ struct HeroCarousel: View {
     }
 
     private func prepare(_ item: MediaItem) async -> (String, HeroPresentation) {
-        var media = item
-        var image: Image?
-        if let details = try? await store.enrichedMetadata(for: item), !Task.isCancelled {
-            media = details.applying(to: item)
-            if let value = details.titleLogoURL, let url = try? AddonURL.http(value),
-               let prepared = try? await ArtworkPipeline.shared.image(for: url), !Task.isCancelled {
-                image = Image(uiImage: prepared)
-            }
-        }
-        return (item.key, HeroPresentation(media: media, titleImage: image,
-            metadataRevision: store.metadataRevision(for: [store.detailsCacheID(item)])))
+        (item.key, await HeroPresentation.prepare(item, store: store))
     }
 }

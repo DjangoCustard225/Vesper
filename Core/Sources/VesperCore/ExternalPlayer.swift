@@ -1,14 +1,16 @@
 import Foundation
 
 public enum VideoPlayer: String, CaseIterable, Identifiable, Codable, Sendable {
-    case vlc, infuse
+    case builtIn, vlc, infuse
     public var id: String { rawValue }
-    public var title: String { switch self { case .vlc: "VLC"; case .infuse: "Infuse" } }
+    public var title: String { switch self { case .builtIn: "Built-in"; case .vlc: "VLC"; case .infuse: "Infuse" } }
+    public static var externalPlayers: [VideoPlayer] { [.vlc, .infuse] }
     public static func preferred(storedValue: String?) -> VideoPlayer {
-        storedValue.flatMap(VideoPlayer.init(rawValue:)) ?? .vlc
+        storedValue.flatMap(VideoPlayer.init(rawValue:)) ?? .builtIn
     }
     public func launchURL(for stream: URL) throws -> URL {
         _ = try AddonURL.http(stream.absoluteString)
+        guard self != .builtIn else { throw AddonError.unsupportedStream }
         var components = URLComponents()
         components.scheme = self == .vlc ? "vlc-x-callback" : "infuse"
         components.host = "x-callback-url"

@@ -9,7 +9,8 @@ fi
 swift test "${task_arguments[@]}" --package-path Core \
     --cache-path "$XDG_CACHE_HOME/swiftpm" \
     --scratch-path "${VESPER_TEST_SCRATCH:-/tmp/vesper-verification-core}"
-bash Scripts/BuildIPA.sh
 task_python="${VESPER_PYTHON:-$(command -v python3)}"
+"$task_python" -B Scripts/TestMPVPlayback.py
+bash Scripts/BuildIPA.sh
 "$task_python" -B Scripts/VerifyIPA.py
 git diff --check

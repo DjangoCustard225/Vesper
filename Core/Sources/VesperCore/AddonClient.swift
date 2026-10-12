@@ -64,11 +64,13 @@ private extension String {
 
 public final class AddonClient: @unchecked Sendable {
     private let session: URLSession
+    private let ownsSession: Bool
     private let transport: HTTPTransport
     private let cache: ResponseCache?
     private let limiter = RequestLimiter()
     private let metadataRequests = SharedRequestPool<Data>()
     public init(session: URLSession? = nil, cache: ResponseCache? = nil, retryPolicy: RetryPolicy = RetryPolicy()) {
+        ownsSession = session == nil
         if let session { self.session = session } else {
             let config = URLSessionConfiguration.ephemeral
             config.timeoutIntervalForRequest = 25
@@ -80,6 +82,8 @@ public final class AddonClient: @unchecked Sendable {
         self.cache = cache
         transport = HTTPTransport(session: self.session, policy: retryPolicy, requestTimeout: 25)
     }
+    deinit { if ownsSession { session.invalidateAndCancel() } }
+
     public func data(from url: URL, operation: NetworkOperation = .metadata) async throws -> Data {
         do {
             _ = try AddonURL.http(url.absoluteString)

@@ -32,7 +32,7 @@ let groupIDs = Dictionary(uniqueKeysWithValues: directories.sorted().enumerated(
 for directory in directories.sorted() {
     let subgroups = directories.filter { ($0 as NSString).deletingLastPathComponent == directory }.sorted().compactMap { groupIDs[$0] }
     var children = subgroups + (sourceRefs[directory] ?? [])
-    if directory == "Vesper" { children += [id(300), id(302), id(304)] }
+    if directory == "Vesper" { children += [id(300), id(302), id(304), id(307)] }
     objects.append("\(groupIDs[directory]!) = {isa = PBXGroup; children = (\(children.joined(separator: ","))); name = \"\((directory as NSString).lastPathComponent)\"; sourceTree = \"<group>\"; };")
 }
 objects += [
@@ -43,15 +43,20 @@ objects += [
     "\(id(304)) = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Vesper/Info.plist; sourceTree = SOURCE_ROOT; };",
     "\(id(305)) = {isa = PBXFileReference; explicitFileType = wrapper.application; path = Vesper.app; sourceTree = BUILT_PRODUCTS_DIR; };",
     "\(id(306)) = {isa = PBXBuildFile; productRef = \(id(401)); };",
+    "\(id(307)) = {isa = PBXFileReference; lastKnownFileType = text; path = Vesper/Resources/MPVKit-LICENSE.txt; sourceTree = SOURCE_ROOT; };",
+    "\(id(308)) = {isa = PBXBuildFile; fileRef = \(id(307)); };",
+    "\(id(402)) = {isa = XCLocalSwiftPackageReference; relativePath = Dependencies/MPVKit; };",
+    "\(id(403)) = {isa = XCSwiftPackageProductDependency; package = \(id(402)); productName = MPVKit; };",
+    "\(id(404)) = {isa = PBXBuildFile; productRef = \(id(403)); };",
     "\(id(400)) = {isa = XCLocalSwiftPackageReference; relativePath = Core; };",
     "\(id(401)) = {isa = XCSwiftPackageProductDependency; package = \(id(400)); productName = VesperCore; };",
-    "\(id(1)) = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 2700; }; buildConfigurationList = \(id(10)); compatibilityVersion = \"Xcode 14.0\"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = \(id(2)); productRefGroup = \(id(3)); projectDirPath = \"\"; projectRoot = \"\"; packageReferences = (\(id(400))); targets = (\(id(4))); };",
+    "\(id(1)) = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 2700; }; buildConfigurationList = \(id(10)); compatibilityVersion = \"Xcode 14.0\"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = \(id(2)); productRefGroup = \(id(3)); projectDirPath = \"\"; projectRoot = \"\"; packageReferences = (\(id(400)), \(id(402))); targets = (\(id(4))); };",
     "\(id(2)) = {isa = PBXGroup; children = (\(groupIDs["Vesper"]!), \(id(3))); sourceTree = \"<group>\"; };",
     "\(id(3)) = {isa = PBXGroup; children = (\(id(305))); name = Products; sourceTree = \"<group>\"; };",
-    "\(id(4)) = {isa = PBXNativeTarget; buildConfigurationList = \(id(11)); buildPhases = (\(id(5)), \(id(6)), \(id(7))); buildRules = (); dependencies = (); name = Vesper; packageProductDependencies = (\(id(401))); productName = Vesper; productReference = \(id(305)); productType = \"com.apple.product-type.application\"; };",
+    "\(id(4)) = {isa = PBXNativeTarget; buildConfigurationList = \(id(11)); buildPhases = (\(id(5)), \(id(6)), \(id(7))); buildRules = (); dependencies = (); name = Vesper; packageProductDependencies = (\(id(401)), \(id(403))); productName = Vesper; productReference = \(id(305)); productType = \"com.apple.product-type.application\"; };",
     "\(id(5)) = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (\(sourceBuilds.joined(separator: ","))); runOnlyForDeploymentPostprocessing = 0; };",
-    "\(id(6)) = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (\(id(306))); runOnlyForDeploymentPostprocessing = 0; };",
-    "\(id(7)) = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (\(id(301)), \(id(303))); runOnlyForDeploymentPostprocessing = 0; };",
+    "\(id(6)) = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (\(id(306)), \(id(404))); runOnlyForDeploymentPostprocessing = 0; };",
+    "\(id(7)) = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (\(id(301)), \(id(303)), \(id(308))); runOnlyForDeploymentPostprocessing = 0; };",
     "\(id(10)) = {isa = XCConfigurationList; buildConfigurations = (\(id(12)), \(id(13))); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };",
     "\(id(11)) = {isa = XCConfigurationList; buildConfigurations = (\(id(14)), \(id(15))); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };"
 ]

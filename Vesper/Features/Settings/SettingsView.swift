@@ -18,6 +18,7 @@ struct SettingsView: View {
             }
             Section {
                 NavigationLink { HeroSettingsView() } label: { Label("Home hero", systemImage: "rectangle.on.rectangle") }
+                Toggle("Continue Watching", isOn: $store.showContinueWatching)
                 Picker("Player", selection: $store.preferredPlayer) {
                     ForEach(VideoPlayer.allCases) { Text($0.title).tag($0) }
                 }
@@ -123,7 +124,28 @@ struct AppAboutView: View {
 struct CreditsView: View {
     var body: some View {
         ScrollView {
-            TMDBAttribution().frame(maxWidth: .infinity, alignment: .leading).padding(24)
+            VStack(alignment: .leading, spacing: 24) {
+                TMDBAttribution()
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("MPVKit").font(.headline)
+                    Text("Built-in playback uses MPVKit’s libmpv, licensed under LGPL 3.0 or later.")
+                        .foregroundStyle(.secondary)
+                    Link("Source code", destination: URL(string: "https://github.com/mpvkit/MPVKit")!)
+                    NavigationLink("License") { MPVPlayerLicenseView() }
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(24)
         }.appBackground().navigationTitle("Credits")
+    }
+}
+
+private struct MPVPlayerLicenseView: View {
+    private var license: String {
+        guard let url = Bundle.main.url(forResource: "MPVKit-LICENSE", withExtension: "txt"),
+              let text = try? String(contentsOf: url, encoding: .utf8) else { return "License unavailable." }
+        return text
+    }
+    var body: some View {
+        ScrollView { Text(license).font(.footnote).textSelection(.enabled).padding(24) }
+            .appBackground().navigationTitle("MPVKit License").navigationBarTitleDisplayMode(.inline)
     }
 }

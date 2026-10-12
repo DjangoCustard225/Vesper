@@ -8,10 +8,17 @@ struct DiscoverView: View {
 
     var body: some View {
         let items = store.heroItems
+        let continuing = store.showContinueWatching ? store.watchProgress.continueWatching : []
         return ImmersiveScrollView(artworkURL: nil, headerHeight: items.isEmpty ? 0 : Design.heroHeight,
                                   artworkURLs: items.map { $0.background ?? $0.poster }, artworkOffset: heroOffset) {
-            VStack(alignment: .leading, spacing: 24) {
+            LazyVStack(alignment: .leading, spacing: 24) {
                 if !items.isEmpty { HeroCarousel(items: items, horizontalOffset: $heroOffset).id(store.heroCatalogID) }
+                if !continuing.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Continue Watching").font(.title2.bold()).padding(.horizontal, 20)
+                        ContinueWatchingShelf(records: continuing)
+                    }
+                }
                 if store.isLoading && store.feeds.isEmpty && store.tmdbFeeds.isEmpty {
                     ProgressView("Finding your next watch…").frame(maxWidth: .infinity).padding(.vertical, 100)
                 }
@@ -89,5 +96,6 @@ struct FeaturedCard: View {
             }.padding(.horizontal, 24).padding(.bottom, 24)
         }
         .frame(height: Design.heroHeight)
+        .modifier(MediaContextMenu(item: media))
     }
 }

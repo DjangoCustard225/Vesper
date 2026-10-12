@@ -12,13 +12,7 @@ struct CatalogView: View {
     }
     var body: some View {
         ScrollView {
-            VStack(spacing: 24) {
-                MediaGrid(items: model.items, onNearEnd: requestNextPage)
-                if model.loading { ProgressView().padding() }
-                if let error = model.error { ErrorNotice(message: error) { Task { await model.loadMore() } } }
-                if !model.loading && model.items.isEmpty && model.error == nil { ContentUnavailableView("No titles found", systemImage: "film", description: Text("Try a different filter.")) }
-                if model.hasMore && !model.loading && !model.items.isEmpty && model.error == nil { AutoPaginationTrigger(load: requestNextPage).id(model.pageRevision) }
-            }.padding(20).frame(maxWidth: 1100).frame(maxWidth: .infinity)
+            CatalogContentView(model: model, emptyTitle: "No titles found", emptyDescription: "Try a different filter.")
         }.appBackground().navigationTitle(feed.catalog.title).toolbar(.visible, for: .navigationBar)
             .toolbar {
                 if !feed.catalog.genres.isEmpty {
@@ -37,9 +31,5 @@ struct CatalogView: View {
             }
             .onChange(of: store.cacheChanges) { _, change in model.refresh(cacheIDs: change.ids) }
             .onDisappear { model.cancel() }
-    }
-    private func requestNextPage() {
-        guard model.hasMore, !model.loading, model.error == nil else { return }
-        Task { await model.loadMore() }
     }
 }

@@ -2,8 +2,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export XDG_CACHE_HOME="${XDG_CACHE_HOME:-/tmp/vesper-cache}"
+task_python="${VESPER_PYTHON:-$(command -v python3)}"
+"$task_python" -B Scripts/PrepareMPVKit.py
 if [[ "${VESPER_NATIVE_BUILD:-0}" == "1" ]]; then
-    task_python="${VESPER_PYTHON:-$(command -v python3)}"
     task_root="$PWD"
     task_adapter=$(mktemp -d /tmp/vesper-build-adapter.XXXXXX)
     trap 'rm -rf "$task_adapter"' EXIT

@@ -18,9 +18,13 @@ final class ExternalPlayerTests: XCTestCase {
         XCTAssertEqual(VideoPlayer.preferred(storedValue: "vlc"), .vlc)
         XCTAssertEqual(VideoPlayer.preferred(storedValue: "infuse"), .infuse)
         for value in [nil, "builtIn", "unknown"] {
-            XCTAssertEqual(VideoPlayer.preferred(storedValue: value), .vlc)
+            XCTAssertEqual(VideoPlayer.preferred(storedValue: value), .builtIn)
         }
-        XCTAssertEqual(VideoPlayer.allCases, [.vlc, .infuse])
+        XCTAssertEqual(VideoPlayer.allCases, [.builtIn, .vlc, .infuse])
+        XCTAssertEqual(VideoPlayer.externalPlayers, [.vlc, .infuse])
+    }
+    func testBuiltInPlayerDoesNotGenerateAnExternalLaunchURL() {
+        XCTAssertThrowsError(try VideoPlayer.builtIn.launchURL(for: URL(string: "https://video.example/movie.mkv")!))
     }
     func testPlayersRejectUnsupportedProtocols() throws {
         for player in VideoPlayer.allCases {

@@ -6,6 +6,7 @@ Only SwiftPM compilation uses its native build system instead of SwiftBuild.
 import os
 from pathlib import Path
 import shutil
+import struct
 import subprocess
 import sys
 
@@ -35,4 +36,27 @@ if code == 0 and sys.argv[1] == "build" and "--show-bin-path" not in args:
     for binary in native.glob("*-App"):
         if binary.is_file():
             shutil.copy2(binary, destination / binary.name)
+    # xtool discovers binary targets and embeds their dynamic frameworks from this directory.
+    for framework in native.glob("*.framework"):
+        copied = destination / framework.name
+        executable = framework / framework.stem
+        data = executable.read_bytes()
+        if data[:4] == b"\xca\xfe\xba\xbe":
+            count = struct.unpack_from(">I", data, 4)[0]
+            slices = [struct.unpack_from(">IIIII", data, 8 + index * 20) for index in range(count)]
+            arm64 = next((item for item in slices if item[0] == 0x0100000C), None)
+            if arm64 is None:
+                sys.exit(f"Missing arm64 slice in {framework.name}")
+            _, _, offset, size, _ = arm64
+            if offset + size > len(data):
+                sys.exit(f"Invalid architecture slice in {framework.name}")
+            data = data[offset:offset + size]
+        if copied.exists():
+            shutil.rmtree(copied)
+        # Static XCFrameworks are already linked into the executable. Embedding
+        # them as dynamic frameworks produces an invalid app bundle.
+        if data.startswith(b"!<arch>\n"):
+            continue
+        shutil.copytree(framework, copied, dirs_exist_ok=True)
+        (copied / framework.stem).write_bytes(data)
 sys.exit(code)

@@ -16,6 +16,10 @@ final class AppStore {
     }
     var isLoading = false
     private(set) var library = LibraryState()
+    private(set) var watchProgress = WatchProgress()
+    var showContinueWatching: Bool {
+        didSet { UserDefaults.standard.set(showContinueWatching, forKey: "showContinueWatching") }
+    }
     private(set) var cacheChanges = MetadataChanges()
     private(set) var cacheVersions: [String: UUID] = [:]
     var storageError: String?
@@ -29,11 +33,14 @@ final class AppStore {
     @ObservationIgnored private var pendingFeedUpdates: Set<String> = []
     private var refreshID = UUID()
     private var libraryWritable = true
+    private var watchProgressWritable = true
     private static var cacheDirectory: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("VesperMetadata")
     }
 
     init() {
+        showContinueWatching = UserDefaults.standard.object(forKey: "showContinueWatching") as? Bool ?? true
+        UserDefaults.standard.removeObject(forKey: "automaticallyOpenLastStream")
         client = AddonClient(cache: addonCache)
         tmdbClient = TMDBClient(cache: tmdbCache)
         let saved = SecureStorage.load([InstalledAddon].self, key: "addons") ?? []
@@ -54,6 +61,14 @@ final class AppStore {
         catch {
             libraryWritable = false
             storageError = "Your saved library couldn’t be read. Its file has been preserved."
+        }
+        do {
+            let loaded = try WatchProgressStorage.repository.load()
+            watchProgress = loaded.state
+            if loaded.recovered { storageError = "Watch progress was recovered from its last saved copy." }
+        } catch {
+            watchProgressWritable = false
+            storageError = error.localizedDescription
         }
     }
     var enabledAddons: [InstalledAddon] { addons.filter(\.isEnabled) }
@@ -189,50 +204,37 @@ final class AppStore {
         guard !Task.isCancelled, revision == tmdbRevision else { return items }
         return MediaIdentity.unique(result)
     }
-    func enrichedMetadata(for item: MediaItem) async throws -> TMDBEnrichment? {
-        guard let credential = tmdbCredential else { return nil }
+    // Every TMDB operation uses one credential snapshot and discards results
+    // if Settings replaced that credential while a request was in flight.
+    private func withTMDB<Result>(_ operation: (TMDBClient, String) async throws -> Result) async throws -> Result {
+        guard let credential = tmdbCredential else { throw TMDBError.invalidCredential }
         let revision = tmdbRevision
-        let result = try await tmdbClient.enrichment(for: item, credential: credential)
+        let result = try await operation(tmdbClient, credential)
         try Task.checkCancellation()
         guard revision == tmdbRevision else { throw CancellationError() }
         return result
+    }
+    func enrichedMetadata(for item: MediaItem) async throws -> TMDBEnrichment? {
+        guard tmdbCredential != nil else { return nil }
+        return try await withTMDB { try await $0.enrichment(for: item, credential: $1) }
     }
     func tmdbCatalog(_ catalog: TMDBCatalog, page: Int = 1) async throws -> TMDBPage {
-        guard let credential = tmdbCredential else { throw TMDBError.invalidCredential }
-        let revision = tmdbRevision
-        let result = try await tmdbClient.catalog(catalog, page: page, credential: credential)
-        try Task.checkCancellation()
-        guard revision == tmdbRevision else { throw CancellationError() }
-        return result
+        try await withTMDB { try await $0.catalog(catalog, page: page, credential: $1) }
     }
     func tmdbSearch(_ term: String, page: Int = 1) async throws -> TMDBPage {
-        guard let credential = tmdbCredential else { throw TMDBError.invalidCredential }
-        let revision = tmdbRevision
-        let result = try await tmdbClient.search(term, page: page, credential: credential)
-        try Task.checkCancellation()
-        guard revision == tmdbRevision else { throw CancellationError() }
-        return result
+        try await withTMDB { try await $0.search(term, page: page, credential: $1) }
     }
     nonisolated static func unique(_ items: [MediaItem]) -> [MediaItem] {
         var keys = Set<String>()
         return items.filter { keys.insert($0.key).inserted }
     }
     func episodes(for media: MediaItem, details: TMDBEnrichment, season: Int) async throws -> [Episode] {
-        guard let credential = tmdbCredential else { throw TMDBError.invalidCredential }
-        let revision = tmdbRevision
-        let result = try await tmdbClient.episodes(for: media, tmdbID: details.id, season: season, credential: credential)
-        try Task.checkCancellation()
-        guard revision == tmdbRevision else { throw CancellationError() }
-        return result
+        try await withTMDB { try await $0.episodes(for: media, tmdbID: details.id, season: season, credential: $1) }
     }
     func recommendations(for details: TMDBEnrichment, page: Int = 1) async throws -> TMDBPage {
-        guard let credential = tmdbCredential else { throw TMDBError.invalidCredential }
-        let revision = tmdbRevision
-        let result = try await tmdbClient.recommendations(tmdbID: details.id, mediaType: details.mediaType,
-                                                         page: page, credential: credential)
-        try Task.checkCancellation()
-        guard revision == tmdbRevision else { throw CancellationError() }
-        return result
+        try await withTMDB { api, credential in
+            try await api.recommendations(tmdbID: details.id, mediaType: details.mediaType, page: page, credential: credential)
+        }
     }
     func refresh() async {
         let request = UUID(); refreshID = request
@@ -318,6 +320,28 @@ final class AppStore {
         }
     }
     func contains(_ item: MediaItem) -> Bool { library.items.contains { $0.isSameTitle(as: item) } }
+    func setWatched(_ watched: Bool, for item: MediaItem) {
+        guard watchProgressWritable else {
+            storageError = "Saved watch progress couldn’t be read. Its files have been preserved."
+            return
+        }
+        var proposed = watchProgress
+        proposed.setWatched(watched, for: item)
+        commitWatchProgress(proposed)
+    }
+    func recordPlayback(media: MediaItem, video: VideoSelection, update: PlaybackProgressUpdate) {
+        var proposed = watchProgress
+        guard proposed.record(media: media, videoID: video.id, subtitle: video.title,
+                              elapsed: update.elapsed, duration: update.duration, ended: update.ended) else { return }
+        commitWatchProgress(proposed)
+    }
+    private func commitWatchProgress(_ proposed: WatchProgress) {
+        guard watchProgressWritable else { return }
+        do {
+            try WatchProgressStorage.repository.save(proposed)
+            watchProgress = proposed
+        } catch { storageError = error.localizedDescription }
+    }
     func toggleLibrary(_ item: MediaItem) {
         var proposed = library
         if contains(item) { proposed.items.removeAll { $0.isSameTitle(as: item) } }

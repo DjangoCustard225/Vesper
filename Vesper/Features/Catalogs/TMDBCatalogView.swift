@@ -28,20 +28,11 @@ struct TMDBCatalogView: View {
     @State private var model = CatalogController()
     var body: some View {
         ScrollView {
-            VStack(spacing: 20) {
-                MediaGrid(items: model.items, onNearEnd: requestNextPage)
-                if model.loading { ProgressView("Loading titles…").padding(24) }
-                if let error = model.error { ErrorNotice(message: error) { Task { await model.loadMore() } } }
-                if !model.loading && model.items.isEmpty && model.error == nil { ContentUnavailableView("No titles available", systemImage: "film") }
-                if model.hasMore && !model.loading && model.error == nil && !model.items.isEmpty { AutoPaginationTrigger(load: requestNextPage).id(model.pageRevision) }
-            }.padding(20).frame(maxWidth: 1100).frame(maxWidth: .infinity)
+            CatalogContentView(model: model, spacing: 20, loadingTitle: "Loading titles…", progressPadding: 24,
+                               emptyTitle: "No titles available")
         }.appBackground().navigationTitle(catalog.title).toolbar(.visible, for: .navigationBar)
             .task(id: store.tmdbRevision) { await model.load(store.tmdbSource(catalog)) }
             .onChange(of: store.cacheChanges) { _, change in model.refresh(cacheIDs: change.ids) }
             .onDisappear { model.cancel() }
-    }
-    private func requestNextPage() {
-        guard model.hasMore, !model.loading, model.error == nil else { return }
-        Task { await model.loadMore() }
     }
 }

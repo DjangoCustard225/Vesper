@@ -43,36 +43,64 @@ actor ArtworkPipeline {
             return image
         }
     }
-    func prefetch(_ urls: [URL]) async {
-        var seen = Set<URL>()
-        let unique = urls.filter { seen.insert($0).inserted }
-        await ConcurrentWork.run(unique, limit: 2, operation: { url in
-            _ = try? await self.image(for: url, priority: .prefetch)
-        }, onResult: { _, _ in })
+}
+
+private struct ArtworkPrefetchModifier: ViewModifier {
+    let urls: [URL]
+    @State private var active = false
+    @State private var controller = ArtworkPrefetchController { url in
+        _ = try? await ArtworkPipeline.shared.image(for: url, priority: .prefetch)
     }
+    func body(content: Content) -> some View {
+        content
+            .onAppear { active = true; controller.update(urls) }
+            .onChange(of: urls) { _, urls in if active { controller.update(urls) } }
+            .onDisappear { active = false; controller.cancel() }
+    }
+}
+
+extension View {
+    func prefetchArtwork(_ urls: [URL]) -> some View { modifier(ArtworkPrefetchModifier(urls: urls)) }
 }
 
 struct CachedArtworkImage<Content: View>: View {
     let url: URL?
+    var fadesIn = false
     @ViewBuilder let content: (AsyncImagePhase) -> Content
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var phase = AsyncImagePhase.empty
     @State private var loadedURL: URL?
     private var displayedPhase: AsyncImagePhase {
+        // Once loading starts, phase owns presentation so a cache insertion cannot skip the fade.
+        if loadedURL == url { return phase }
         if let url, let image = ArtworkPipeline.shared.cachedImage(for: url) { return .success(Image(uiImage: image)) }
-        return loadedURL == url ? phase : .empty
+        return .empty
     }
     var body: some View {
-        content(displayedPhase).task(id: url) {
-            loadedURL = url
-            guard let url else { phase = .empty; return }
-            if let image = ArtworkPipeline.shared.cachedImage(for: url) {
-                phase = .success(Image(uiImage: image)); return
+        ZStack {
+            content(displayedPhase)
+                .id(displayedPhase.image != nil)
+                .transition(fadesIn ? .opacity : .identity)
+        }.task(id: url) {
+            guard let url else {
+                withTransaction(Transaction(animation: nil)) { loadedURL = nil; phase = .empty }
+                return
             }
-            phase = .empty
+            if let image = ArtworkPipeline.shared.cachedImage(for: url) {
+                withTransaction(Transaction(animation: nil)) {
+                    loadedURL = url; phase = .success(Image(uiImage: image))
+                }
+                return
+            }
+            withTransaction(Transaction(animation: nil)) {
+                loadedURL = url; phase = .empty
+            }
             do {
                 let image = try await ArtworkPipeline.shared.image(for: url)
                 guard !Task.isCancelled else { return }
-                phase = .success(Image(uiImage: image))
+                withAnimation(fadesIn && !reduceMotion ? .easeOut(duration: 0.22) : nil) {
+                    phase = .success(Image(uiImage: image))
+                }
             } catch {
                 guard !Task.isCancelled else { return }
                 phase = .failure(error)

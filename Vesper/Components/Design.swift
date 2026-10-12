@@ -15,7 +15,7 @@ struct Artwork: View {
     let url: String?
     var alignment: Alignment = .center
     var body: some View {
-        CachedArtworkImage(url: url.flatMap { try? AddonURL.http($0) }) { phase in
+        CachedArtworkImage(url: url.flatMap { try? AddonURL.http($0) }, fadesIn: true) { phase in
             switch phase {
             case .success(let image):
                 image.resizable().scaledToFill()
@@ -140,13 +140,14 @@ struct MediaGrid: View {
                         NavigationLink { DetailView(item: item) } label: { PosterCard(item: item) }
                     }
                 }.buttonStyle(.plain)
+                    .modifier(MediaContextMenu(item: item))
                     .onScrollVisibilityChange(threshold: 0.01) { visible in
                         prefetch.visibility(visible, key: item.key, items: items)
                     }
                     .onAppear { if index >= items.count - 6 { onNearEnd?() } }
             }
         }
-        .task(id: prefetchURLs) { await ArtworkPipeline.shared.prefetch(prefetchURLs) }
+        .prefetchArtwork(prefetchURLs)
         .onDisappear { prefetch.reset() }
     }
 }

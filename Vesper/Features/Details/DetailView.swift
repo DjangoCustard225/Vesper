@@ -5,6 +5,7 @@ struct DetailView: View {
     @Environment(AppStore.self) private var store
     let item: MediaItem
     var startPlayback = false
+    var resumeRecord: WatchRecord? = nil
     @State private var didStartPlayback = false
     @State private var full: MediaItem?
     @State private var loading = false
@@ -142,7 +143,7 @@ struct DetailView: View {
         let (result, failure) = await store.metadata(for: item)
         guard !Task.isCancelled else { return }
         full = result; error = failure; loading = false
-        if season == nil { season = seasons.first(where: { $0 > 0 }) ?? seasons.first }
+        if season == nil { season = resumeRecord?.season ?? seasons.first(where: { $0 > 0 }) ?? seasons.first }
         await enrich()
         startRequestedPlayback()
     }
@@ -180,6 +181,13 @@ struct DetailView: View {
     }
     private func startRequestedPlayback() {
         guard startPlayback, !didStartPlayback, !loading, !enriching, error == nil, tmdbError == nil else { return }
+        if let resumeRecord {
+            didStartPlayback = true
+            let id = resumeRecord.playbackID(for: media)
+            let episode = (media.videos ?? []).first { MediaIdentity.videoID($0.id, for: media) == id }
+            selection = VideoSelection(id: id, title: resumeRecord.subtitle, embedded: episode?.streams)
+            return
+        }
         if media.type != "series" || isLive || media.behaviorHints?.defaultVideoId != nil {
             didStartPlayback = true
             playDefault()

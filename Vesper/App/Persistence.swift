@@ -58,3 +58,9 @@ enum LibraryStorage {
         return (state, false)
     }
 }
+
+enum WatchProgressStorage {
+    static var repository: WatchProgressRepository {
+        WatchProgressRepository(url: LibraryStorage.url.deletingLastPathComponent().appendingPathComponent("watch-progress.json"))
+    }
+}

@@ -22,13 +22,13 @@ struct LibraryView: View {
                                 .onScrollVisibilityChange(threshold: 0.01) { visible in
                                     prefetch.visibility(visible, key: item.key, items: items)
                                 }
-                                .contextMenu { Button("Remove from library", systemImage: "bookmark.slash", role: .destructive) { store.toggleLibrary(item) } }
+                                .modifier(MediaContextMenu(item: item))
                         }
                     }
                 }
             }.padding(20).frame(maxWidth: 1100).frame(maxWidth: .infinity)
         }.appBackground().navigationTitle("Library")
-            .task(id: prefetchURLs) { await ArtworkPipeline.shared.prefetch(prefetchURLs) }
+            .prefetchArtwork(prefetchURLs)
             .onDisappear { prefetch.reset() }
     }
 }

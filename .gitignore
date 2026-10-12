@@ -14,3 +14,5 @@ __pycache__/
 *.mobileprovision
 .env
 .env.*
+Dependencies/MPVKit/*.xcframework/
+Dependencies/MPVKit/*.sha256

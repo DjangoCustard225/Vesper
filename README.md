@@ -16,7 +16,7 @@
   <a href="https://github.com/DjangoCustard225/Vesper/releases/latest/download/Vesper.ipa">Download IPA · Latest release</a>
 </p>
 
-Browse with TMDB, save titles to your library, and watch with external video players like Infuse or VLC.
+Browse with TMDB, save titles to your library, and watch in Vesper or with external video players like Infuse or VLC.
 
 ## Screenshots
 
@@ -37,21 +37,24 @@ Browse with TMDB, save titles to your library, and watch with external video pla
 - Pick a season and browse episodes.
 - Search titles and save favorites to your library.
 - Back up and restore your library.
-- Watch with external video players like Infuse or VLC.
+- Watch in the built-in player with Liquid Glass controls, or use external video players like Infuse or VLC.
+- Resume movies and episodes with Continue Watching, and mark titles watched or unwatched.
 
 ## Get started
 
 1. Download the [latest release](https://github.com/DjangoCustard225/Vesper/releases/latest), sign the unsigned IPA, and install it on **iOS 27 or later**.
 2. In **Settings → TMDB**, save and verify your [TMDB API key or Read Access Token](https://www.themoviedb.org/settings/api).
 3. In **Settings → Add-ons → Add add-on**, install a provider using its manifest URL or `stremio://` link.
-4. Install an external video player like **Infuse** or **VLC**, choose it in **Settings → Player**, then open a title and tap **Play**.
+4. Open a title, tap **Play**, and choose a source. Select **Built-in**, **Infuse**, or **VLC** in **Settings → Player**.
 
-Use providers with playable HTTP/HTTPS sources. Vesper has no built-in player or on-device torrent engine.
+Use providers with playable HTTP/HTTPS sources. Vesper has no on-device torrent engine.
 
 ## Privacy
 
-Credentials and add-on configuration are stored in **iOS Keychain**; your library stays on your device. Vesper doesn’t record watch history or playback progress. Requests go directly to TMDB and your providers. Local diagnostics omit URLs and credentials. No analytics, ads, or tracking SDKs.
+Credentials and add-on configuration are stored in **iOS Keychain**. Your library and built-in player progress stay on your device; progress is excluded from device backups and isn’t synced. External players aren’t tracked. Requests go directly to TMDB and your providers. Local diagnostics omit URLs and credentials. No analytics, ads, or tracking SDKs.
 
 ## Credits
 
 Vesper is independent of Stremio. This product uses the TMDB API but is not endorsed or certified by TMDB.
+
+Built-in playback uses [MPVKit’s libmpv](https://github.com/mpvkit/MPVKit), licensed under LGPL 3.0 or later.

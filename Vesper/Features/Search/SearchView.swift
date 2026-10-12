@@ -31,41 +31,19 @@ struct SearchView: View {
     private var filtered: [MediaItem] { items.filter { filter == "all" || $0.type == filter } }
     var body: some View {
         ScrollView {
-            VStack(spacing: 24) {
-                if !trimmed.isEmpty {
-                    Picker("Content type", selection: $filter) { Text("All").tag("all"); Text("Movies").tag("movie"); Text("Series").tag("series") }.pickerStyle(.segmented)
-                    if loading || (filtered.isEmpty && searchingProviders) { ProgressView("Searching…").padding(.vertical, 40) }
-                    if !filtered.isEmpty {
-                        MediaGrid(items: filtered, onNearEnd: requestNextPage, onSelect: onSelect)
-                    }
-                    if !loading && !searchingProviders && filtered.isEmpty && !hasMore { ContentUnavailableView.search(text: trimmed) }
-                    if loadingMore { ProgressView() }
-                    if hasMore && !loading && !loadingMore && pageError == nil {
-                        AutoPaginationTrigger(load: requestNextPage).id("\(generation):\(page):\(filter)")
-                    }
-                    if let pageError { ErrorNotice(message: pageError) { Task { await loadMore() } } }
-                    ForEach(failures, id: \.self) { ErrorNotice(message: $0) { Task { await search() } } }
-                }
-            }.padding(20).frame(maxWidth: 1100).frame(maxWidth: .infinity)
-        }.appBackground().navigationTitle("Search")
-            .navigationBarTitleDisplayMode(.large)
+            VStack(spacing: 0) {
+                searchHeader
+                searchResults
+            }
+        }.appScrollEdges().scrollDismissesKeyboard(.interactively)
+            .appBackground().navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Close search", systemImage: "xmark") { dismiss() }.labelStyle(.iconOnly)
                 }
             }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
-                    TextField("Search for movies and shows", text: $query)
-                        .textFieldStyle(.plain).textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .submitLabel(.search).focused($queryFocused)
-                        .onSubmit { queryFocused = false }
-                }.padding(.horizontal, 16).padding(.vertical, 14)
-                    .glassEffect(.regular, in: Capsule()).padding(.horizontal, 20).padding(.vertical, 10)
-            }
-            .scrollDismissesKeyboard(.interactively)
             .task {
                 guard !didFocusSearch else { return }
                 didFocusSearch = true
@@ -87,6 +65,49 @@ struct SearchView: View {
                 if !Task.isCancelled && searchKey == key { completedSearchKey = key }
             }
     }
+
+    private var searchHeader: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Search").font(.largeTitle.bold()).accessibilityAddTraits(.isHeader)
+                .padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 2)
+            HStack(spacing: 10) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+                TextField("Search for movies and shows", text: $query)
+                    .textFieldStyle(.plain).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .submitLabel(.search).focused($queryFocused)
+                    .onSubmit { queryFocused = false }
+            }.padding(.horizontal, 16).padding(.vertical, 14)
+                .glassEffect(.regular, in: Capsule()).padding(.horizontal, 20).padding(.vertical, 10)
+        }.frame(maxWidth: 1100).frame(maxWidth: .infinity)
+    }
+
+    private var searchResults: some View {
+        VStack(spacing: 24) {
+            if !trimmed.isEmpty {
+                Picker("Content type", selection: $filter) {
+                    Text("All").tag("all")
+                    Text("Movies").tag("movie")
+                    Text("Series").tag("series")
+                }.pickerStyle(.segmented)
+                if loading || (filtered.isEmpty && searchingProviders) {
+                    ProgressView("Searching…").padding(.vertical, 40)
+                }
+                if !filtered.isEmpty {
+                    MediaGrid(items: filtered, onNearEnd: requestNextPage, onSelect: onSelect)
+                }
+                if !loading && !searchingProviders && filtered.isEmpty && !hasMore {
+                    ContentUnavailableView.search(text: trimmed)
+                }
+                if loadingMore { ProgressView() }
+                if hasMore && !loading && !loadingMore && pageError == nil {
+                    AutoPaginationTrigger(load: requestNextPage).id("\(generation):\(page):\(filter)")
+                }
+                if let pageError { ErrorNotice(message: pageError) { Task { await loadMore() } } }
+                ForEach(failures, id: \.self) { ErrorNotice(message: $0) { Task { await search() } } }
+            }
+        }.padding(20).frame(maxWidth: 1100).frame(maxWidth: .infinity)
+    }
+
     private func search() async {
         let term = trimmed
         guard !term.isEmpty else { return }

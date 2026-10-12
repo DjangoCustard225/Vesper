@@ -5,10 +5,12 @@ import FoundationNetworking
 
 public actor ArtworkDataClient {
     private let session: URLSession
+    private let ownsSession: Bool
     private let memory = NSCache<NSURL, NSData>()
     private let requests = SharedRequestPool<Data>()
     private let limiter = PriorityRequestLimiter(limit: 4, prefetchLimit: 2)
     public init(session: URLSession? = nil) {
+        ownsSession = session == nil
         if let session { self.session = session }
         else {
             let configuration = URLSessionConfiguration.default
@@ -22,7 +24,7 @@ public actor ArtworkDataClient {
         memory.totalCostLimit = 24 * 1024 * 1024
         memory.countLimit = 150
     }
-    deinit { session.invalidateAndCancel() }
+    deinit { if ownsSession { session.invalidateAndCancel() } }
 
     public func clearMemory() { memory.removeAllObjects() }
     func subscriberCount(for url: URL) async -> Int { await requests.subscriberCount(for: url.absoluteString) }

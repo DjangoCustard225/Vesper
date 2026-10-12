@@ -34,6 +34,7 @@ struct PosterShelf: View {
                     NavigationLink { DetailView(item: item) } label: {
                         PosterCard(item: item, width: Design.posterWidth)
                     }.buttonStyle(.plain)
+                        .modifier(MediaContextMenu(item: item))
                         .onScrollVisibilityChange(threshold: 0.01) { active in
                             prefetch.visibility(active, key: item.key, items: items)
                         }
@@ -41,7 +42,7 @@ struct PosterShelf: View {
             }.padding(.horizontal, horizontalPadding)
         }.scrollIndicators(.hidden).appScrollEdges()
             .onScrollVisibilityChange(threshold: 0.01) { visible = $0 }
-            .task(id: urls) { await ArtworkPipeline.shared.prefetch(urls) }
+            .prefetchArtwork(urls)
             .onDisappear { visible = false; prefetch.reset() }
     }
 }

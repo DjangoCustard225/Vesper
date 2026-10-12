@@ -4,8 +4,9 @@ import PackageDescription
 let package = Package(
     name: "Vesper", platforms: [.iOS("27.0")],
     products: [.library(name: "Vesper", targets: ["Vesper"])],
-    dependencies: [.package(path: "Core")],
-    targets: [.target(name: "Vesper", dependencies: [.product(name: "VesperCore", package: "Core")],
-                      path: "Vesper", exclude: ["Info.plist", "PrivacyInfo.xcprivacy", "Assets.xcassets"])],
+    dependencies: [.package(path: "Core"), .package(path: "Dependencies/MPVKit")],
+    targets: [.target(name: "Vesper", dependencies: [.product(name: "VesperCore", package: "Core"),
+                      .product(name: "MPVKit", package: "MPVKit")],
+                      path: "Vesper", exclude: ["Info.plist", "PrivacyInfo.xcprivacy", "Assets.xcassets", "Resources"])],
     swiftLanguageModes: [.v5]
 )
