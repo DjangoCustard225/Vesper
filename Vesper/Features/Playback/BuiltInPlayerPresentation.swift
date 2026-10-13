@@ -5,6 +5,7 @@ import VesperCore
 /// Present the player as the actual full-screen controller so UIKit queries its orientation policy.
 struct BuiltInPlayerPresentation: UIViewControllerRepresentable {
     @Binding var request: PlaybackRequest?
+    let gesturePreferences: PlayerGesturePreferences
     let onDismiss: () -> Void
     let choosePlayer: (VideoPlayer) -> Void
 
@@ -52,7 +53,8 @@ struct BuiltInPlayerPresentation: UIViewControllerRepresentable {
             }
             playbackScene = view.window?.windowScene
             previousOrientation = playbackScene?.effectiveGeometry.interfaceOrientation ?? .unknown
-            let root = BuiltInPlayerView(request: request, closePlayer: { [weak self] in
+            let root = BuiltInPlayerView(request: request, gesturePreferences: update.gesturePreferences,
+                                         closePlayer: { [weak self] in
                 self?.update?.request = nil
                 self?.finish()
             }, choosePlayer: { [weak self] choice in

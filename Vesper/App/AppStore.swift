@@ -1,6 +1,12 @@
 import SwiftUI
 import VesperCore
 
+struct PlayerGesturePreferences: Codable, Equatable {
+    var holdFor2x = true
+    var brightnessSwipe = true
+    var volumeSwipe = true
+}
+
 @MainActor
 @Observable
 final class AppStore {
@@ -13,6 +19,13 @@ final class AppStore {
     private(set) var heroCatalogID: String
     var preferredPlayer: VideoPlayer {
         didSet { UserDefaults.standard.set(preferredPlayer.rawValue, forKey: "preferredPlayer") }
+    }
+    var playerGestures: PlayerGesturePreferences {
+        didSet {
+            if let data = try? JSONEncoder().encode(playerGestures) {
+                UserDefaults.standard.set(data, forKey: "playerGestures")
+            }
+        }
     }
     var isLoading = false
     private(set) var library = LibraryState()
@@ -40,6 +53,9 @@ final class AppStore {
 
     init() {
         showContinueWatching = UserDefaults.standard.object(forKey: "showContinueWatching") as? Bool ?? true
+        playerGestures = UserDefaults.standard.data(forKey: "playerGestures")
+            .flatMap { try? JSONDecoder().decode(PlayerGesturePreferences.self, from: $0) }
+            ?? PlayerGesturePreferences()
         UserDefaults.standard.removeObject(forKey: "automaticallyOpenLastStream")
         client = AddonClient(cache: addonCache)
         tmdbClient = TMDBClient(cache: tmdbCache)

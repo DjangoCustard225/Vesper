@@ -7,6 +7,7 @@ struct BuiltInPlayerView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     let request: PlaybackRequest
+    let gesturePreferences: PlayerGesturePreferences
     let closePlayer: () -> Void
     let choosePlayer: (VideoPlayer) -> Void
     @State private var controller: MPVPlaybackController
@@ -17,9 +18,12 @@ struct BuiltInPlayerView: View {
     @State private var showingOptions = false
     @State private var interactionID = 0
     @State private var controlFrames: [CGRect] = []
+    @State private var adjustments = PlayerSystemAdjustments()
 
-    init(request: PlaybackRequest, closePlayer: @escaping () -> Void, choosePlayer: @escaping (VideoPlayer) -> Void) {
+    init(request: PlaybackRequest, gesturePreferences: PlayerGesturePreferences,
+         closePlayer: @escaping () -> Void, choosePlayer: @escaping (VideoPlayer) -> Void) {
         self.request = request
+        self.gesturePreferences = gesturePreferences
         self.closePlayer = closePlayer
         self.choosePlayer = choosePlayer
         _controller = State(initialValue: MPVPlaybackController(url: request.url, resumeSeconds: request.resumeSeconds,
@@ -32,35 +36,7 @@ struct BuiltInPlayerView: View {
                                    height: geometry.size.height + geometry.safeAreaInsets.top + geometry.safeAreaInsets.bottom)
             let videoCenter = CGPoint(x: videoSize.width / 2 - geometry.safeAreaInsets.leading,
                                       y: videoSize.height / 2 - geometry.safeAreaInsets.top)
-            ZStack {
-                Color.black.ignoresSafeArea()
-                MPVVideoSurface(controller: controller).ignoresSafeArea()
-                    .allowsHitTesting(false).accessibilityHidden(true)
-                if controlsVisible, controller.error == nil {
-                    Color.black.opacity(0.2).ignoresSafeArea().allowsHitTesting(false)
-                        .transition(.opacity)
-                }
-                if let error = controller.error {
-                    failure(error).padding(24).playbackControl()
-                } else if controlsVisible {
-                    controls(size: geometry.size, videoCenter: videoCenter)
-                        .transition(.opacity)
-                }
-                if controller.isBoosting {
-                    VStack {
-                        Text("2×").font(.subheadline.weight(.semibold))
-                            .padding(.horizontal, 14).padding(.vertical, 8)
-                            .background(.black.opacity(0.5), in: Capsule())
-                        Spacer()
-                    }.padding(.top, 72).allowsHitTesting(false)
-                }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture { toggleControls() }
-            .gesture(PlayerHoldGesture(excludedFrames: controlFrames) { held in
-                if held, !scrubbing, !showingOptions, UIApplication.shared.applicationState == .active { controller.beginBoost() }
-                else { controller.endBoost() }
-            })
+            gestureSurface(playerCanvas(size: geometry.size, videoCenter: videoCenter))
             .accessibilityAction(named: "Show or hide playback controls") { toggleControls() }
             .onPreferenceChange(PlaybackControlFrames.self) { controlFrames = $0 }
             .onChange(of: videoSize) { _, _ in controller.endBoost() }
@@ -71,6 +47,7 @@ struct BuiltInPlayerView: View {
         .onChange(of: controller.isBuffering) { _, _ in scheduleHide() }
         .onChange(of: controller.isBoosting) { _, _ in scheduleHide() }
         .onChange(of: controller.hasEnded) { _, ended in if ended { revealControls() } }
+        .onChange(of: controller.error) { _, error in if error != nil { adjustments.restoreBrightness() } }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { controller.endBoost() }
             if phase != .active, scrubbing { controller.seek(fraction: scrubFraction); scrubbing = false }
@@ -84,7 +61,65 @@ struct BuiltInPlayerView: View {
             controller.pause(); revealControls()
         }
         .onChange(of: voiceOver) { _, _ in scheduleHide() }
-        .onDisappear { hideTask?.cancel(); controller.stop() }
+        .onDisappear { hideTask?.cancel(); controller.stop(); adjustments.restoreBrightness() }
+    }
+
+    private func playerCanvas(size: CGSize, videoCenter: CGPoint) -> some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            // Keep the system volume slider mounted at a usable size behind the video.
+            SystemVolumeAttachment(adjustments: adjustments)
+                .frame(width: 160, height: 20)
+                .allowsHitTesting(false).accessibilityHidden(true)
+            adjustmentCapture.frame(width: 1, height: 1)
+                .allowsHitTesting(false).accessibilityHidden(true)
+            MPVVideoSurface(controller: controller).ignoresSafeArea()
+                .allowsHitTesting(false).accessibilityHidden(true)
+            if controlsVisible, controller.error == nil {
+                Color.black.opacity(0.2).ignoresSafeArea().allowsHitTesting(false)
+                    .transition(.opacity)
+            }
+            if let error = controller.error {
+                failure(error).padding(24).playbackControl()
+            } else if controlsVisible {
+                controls(size: size, videoCenter: videoCenter).transition(.opacity)
+            }
+            if controller.isBoosting {
+                VStack {
+                    Text("2×").font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .background(.black.opacity(0.5), in: Capsule())
+                    Spacer()
+                }.padding(.top, 72).allowsHitTesting(false)
+            }
+        }
+    }
+
+    private func gestureSurface<Content: View>(_ content: Content) -> some View {
+        content.contentShape(Rectangle())
+            .onTapGesture { toggleControls() }
+            .gesture(holdGesture)
+    }
+
+    private var holdGesture: PlayerHoldGesture {
+        PlayerHoldGesture(enabled: gesturePreferences.holdFor2x && controller.error == nil,
+                          excludedFrames: controlFrames) { held in
+            if held, !scrubbing, !showingOptions,
+               UIApplication.shared.applicationState == .active { controller.beginBoost() }
+            else { controller.endBoost() }
+        }
+    }
+
+    private var adjustmentCapture: PlayerAdjustmentCapture {
+        PlayerAdjustmentCapture(brightnessEnabled: gesturePreferences.brightnessSwipe && controller.error == nil,
+                                volumeEnabled: gesturePreferences.volumeSwipe && controller.error == nil,
+            began: { side in
+                controller.endBoost()
+                adjustments.begin(side)
+                hideTask?.cancel()
+            }, changed: { side, fraction in
+                adjustments.adjust(side, fraction: fraction)
+            }, ended: { scheduleHide() })
     }
 
     private func controls(size: CGSize, videoCenter: CGPoint) -> some View {
@@ -255,67 +290,20 @@ struct BuiltInPlayerView: View {
 
     private func scheduleHide() {
         hideTask?.cancel()
-        guard controller.isPlaying, !controller.isBuffering, !controller.isBoosting, !scrubbing, !showingOptions, !voiceOver else { return }
+        guard controller.isPlaying, !controller.isBuffering, !controller.isBoosting,
+              !scrubbing, !showingOptions, !voiceOver else { return }
         let interaction = interactionID
         hideTask = Task {
             try? await Task.sleep(for: .seconds(4))
-            guard !Task.isCancelled, !scrubbing, !controller.isBoosting, interaction == interactionID else { return }
+            guard !Task.isCancelled, !scrubbing,
+                  !controller.isBoosting, interaction == interactionID else { return }
             withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) { controlsVisible = false }
         }
     }
 
-    private func close() { hideTask?.cancel(); controller.stop(); closePlayer() }
-    private func switchPlayer(_ player: VideoPlayer) { hideTask?.cancel(); controller.stop(); choosePlayer(player) }
-}
-
-private struct PlayerHoldGesture: UIGestureRecognizerRepresentable {
-    let excludedFrames: [CGRect]
-    let holdChanged: (Bool) -> Void
-
-    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
-        Coordinator(excludedFrames: excludedFrames)
-    }
-
-    func makeUIGestureRecognizer(context: Context) -> UILongPressGestureRecognizer {
-        let hold = UILongPressGestureRecognizer()
-        hold.minimumPressDuration = 0.25
-        hold.allowableMovement = 20
-        hold.numberOfTouchesRequired = 1
-        hold.delegate = context.coordinator
-        return hold
-    }
-
-    func updateUIGestureRecognizer(_ recognizer: UILongPressGestureRecognizer, context: Context) {
-        context.coordinator.excludedFrames = excludedFrames
-    }
-
-    func handleUIGestureRecognizerAction(_ recognizer: UILongPressGestureRecognizer, context: Context) {
-        switch recognizer.state {
-        case .began: holdChanged(true)
-        case .ended, .cancelled, .failed: holdChanged(false)
-        default: break
-        }
-    }
-
-    @MainActor final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        var excludedFrames: [CGRect]
-
-        init(excludedFrames: [CGRect]) {
-            self.excludedFrames = excludedFrames
-        }
-
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            // SwiftUI buttons and the timeline can share their hosting UIView.
-            // Exclude their actual frames rather than testing only for UIControl.
-            let point = touch.location(in: touch.window)
-            guard !excludedFrames.contains(where: { $0.contains(point) }) else { return false }
-            var view = touch.view
-            while let current = view {
-                if current is UIControl { return false }
-                view = current.superview
-            }
-            return true
-        }
+    private func close() { hideTask?.cancel(); controller.stop(); adjustments.restoreBrightness(); closePlayer() }
+    private func switchPlayer(_ player: VideoPlayer) {
+        hideTask?.cancel(); controller.stop(); adjustments.restoreBrightness(); choosePlayer(player)
     }
 }
 

@@ -78,6 +78,13 @@
             c.stop(); passed += 1
         }
         do {
+            let (c, engine) = fresh(); engine.emit(loaded()); await settle()
+            c.setFill(true); c.setFill(false)
+            expect(!c.fillsScreen && Array(engine.operations.suffix(2)) == ["fill:true", "fill:false"],
+                   "The Fit video / Fill screen menu must remain available")
+            c.stop(); passed += 1
+        }
+        do {
             let (c, engine) = fresh(); engine.emit(loaded()); await settle(); c.beginBoost()
             var state = loaded(); state.ended = true
             engine.emit(state); await settle()

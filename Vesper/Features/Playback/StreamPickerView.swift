@@ -24,7 +24,8 @@ struct StreamPickerView: View {
                 .onChange(of: store.addonSignature) { _, _ in launchTask?.cancel() }
                 .onDisappear { model.cancel(); launchTask?.cancel() }
                 .background {
-                    BuiltInPlayerPresentation(request: $playbackRequest, onDismiss: finishPlayback) { player in
+                    BuiltInPlayerPresentation(request: $playbackRequest, gesturePreferences: store.playerGestures,
+                                              onDismiss: finishPlayback) { player in
                         pendingPlayer = player
                         playbackRequest = nil
                     }

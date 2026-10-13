@@ -4,7 +4,6 @@ import VesperCore
 struct SettingsView: View {
     @Environment(AppStore.self) private var store
     var body: some View {
-        @Bindable var store = store
         Form {
             Section {
                 NavigationLink { AddonsView() } label: { Label("Add-ons", systemImage: "puzzlepiece.extension") }
@@ -17,11 +16,8 @@ struct SettingsView: View {
                 }
             }
             Section {
-                NavigationLink { HeroSettingsView() } label: { Label("Home hero", systemImage: "rectangle.on.rectangle") }
-                Toggle("Continue Watching", isOn: $store.showContinueWatching)
-                Picker("Player", selection: $store.preferredPlayer) {
-                    ForEach(VideoPlayer.allCases) { Text($0.title).tag($0) }
-                }
+                NavigationLink { HomeSettingsView() } label: { Label("Home", systemImage: "house") }
+                NavigationLink { VideoPlayerSettingsView() } label: { Label("Video Player", systemImage: "play.rectangle") }
             }
             Section {
                 NavigationLink { DataSettingsView() } label: { Label("Data", systemImage: "externaldrive") }
@@ -31,18 +27,43 @@ struct SettingsView: View {
     }
 }
 
-struct HeroSettingsView: View {
+struct HomeSettingsView: View {
     @Environment(AppStore.self) private var store
     var body: some View {
+        @Bindable var store = store
         Form {
-            Picker("Catalog", selection: Binding(get: { store.heroCatalogID }, set: { store.setHeroCatalog($0) })) {
+            Picker("Hero", selection: Binding(get: { store.heroCatalogID }, set: { store.setHeroCatalog($0) })) {
                 Text("Automatic").tag(HeroCatalogSelection.automaticID)
                 ForEach(store.heroCatalogs) { catalog in Text(catalog.title).tag(catalog.id) }
                 if store.heroCatalogID != HeroCatalogSelection.automaticID && !store.heroCatalogs.contains(where: { $0.id == store.heroCatalogID }) {
                     Text("Unavailable catalog").tag(store.heroCatalogID)
                 }
             }.pickerStyle(.inline)
-        }.appScrollEdges().navigationTitle("Home hero").navigationBarTitleDisplayMode(.inline)
+            Section { Toggle("Continue Watching", isOn: $store.showContinueWatching) }
+        }.appScrollEdges().navigationTitle("Home").navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+struct VideoPlayerSettingsView: View {
+    @Environment(AppStore.self) private var store
+    var body: some View {
+        @Bindable var store = store
+        Form {
+            Section {
+                Picker("Preferred player", selection: $store.preferredPlayer) {
+                    ForEach(VideoPlayer.allCases) { Text($0.title).tag($0) }
+                }
+            }
+            Section("Gestures") {
+                Toggle("Hold for 2×", isOn: gestureBinding(\.holdFor2x))
+                Toggle("Brightness swipe (left side)", isOn: gestureBinding(\.brightnessSwipe))
+                Toggle("Volume swipe (right side)", isOn: gestureBinding(\.volumeSwipe))
+            }
+        }.appScrollEdges().navigationTitle("Video Player").navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func gestureBinding(_ keyPath: WritableKeyPath<PlayerGesturePreferences, Bool>) -> Binding<Bool> {
+        Binding(get: { store.playerGestures[keyPath: keyPath] }, set: { store.playerGestures[keyPath: keyPath] = $0 })
     }
 }
 

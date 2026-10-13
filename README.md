@@ -45,7 +45,7 @@ Browse with TMDB, save titles to your library, and watch in Vesper or with exter
 1. Download the [latest release](https://github.com/DjangoCustard225/Vesper/releases/latest), sign the unsigned IPA, and install it on **iOS 27 or later**.
 2. In **Settings → TMDB**, save and verify your [TMDB API key or Read Access Token](https://www.themoviedb.org/settings/api).
 3. In **Settings → Add-ons → Add add-on**, install a provider using its manifest URL or `stremio://` link.
-4. Open a title, tap **Play**, and choose a source. Select **Built-in**, **Infuse**, or **VLC** in **Settings → Player**.
+4. Open a title, tap **Play**, and choose a source. Select **Built-in**, **Infuse**, or **VLC** in **Settings → Video Player**.
 
 Use providers with playable HTTP/HTTPS sources. Vesper has no on-device torrent engine.
 
