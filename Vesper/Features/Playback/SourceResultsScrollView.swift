@@ -8,6 +8,7 @@ extension EnvironmentValues {
         get { self[SourceScrollEffectsEnabledKey.self] }
         set { self[SourceScrollEffectsEnabledKey.self] = newValue }
     }
+
     fileprivate var sourceScrollAtTop: Bool {
         get { self[SourceScrollAtTopKey.self] }
         set { self[SourceScrollAtTopKey.self] = newValue }
@@ -28,7 +29,9 @@ struct SourceResultsScrollView<Content: View>: View {
                 .environment(\.sourceScrollEffectsEnabled, hasStartedScrolling && !isAnimatingScroll)
                 .environment(\.sourceScrollAtTop, isAtTop)
         }
-        .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top <= 1 } action: { _, atTop in
+        .onScrollGeometryChange(for: Bool.self) {
+            $0.contentOffset.y + $0.contentInsets.top <= 1
+        } action: { _, atTop in
             isAtTop = atTop
             if !atTop, isUserScrolling { hasStartedScrolling = true }
         }
@@ -36,7 +39,8 @@ struct SourceResultsScrollView<Content: View>: View {
             let animating = phase == .animating
             let userScrolling = phase == .interacting || phase == .decelerating
             hasStartedScrolling = !animating && (hasStartedScrolling || userScrolling)
-            isAnimatingScroll = animating; isUserScrolling = userScrolling
+            isAnimatingScroll = animating
+            isUserScrolling = userScrolling
         }
         .contentMargins(.bottom, 48, for: .scrollContent)
         .appBackground()

@@ -12,6 +12,7 @@ final class PlaybackTimelineTests: XCTestCase {
         XCTAssertNil(timeline.seekTarget(fraction: .nan))
         XCTAssertNil(timeline.skipTarget(seconds: .infinity))
     }
+
     func testLiveAndUnseekableStreamsDoNotExposeSeeking() {
         for duration in [Double(0), -1, .nan, .infinity] {
             let timeline = PlaybackTimeline(elapsed: 20, duration: duration, isSeekable: true)
@@ -22,6 +23,7 @@ final class PlaybackTimelineTests: XCTestCase {
         }
         XCTAssertFalse(PlaybackTimeline(elapsed: 10, duration: 100, isSeekable: false).isSeekable)
     }
+
     func testTimingSurvivesInvalidAndLateEngineValues() {
         let ended = PlaybackTimeline(elapsed: 102, duration: 100, isSeekable: true)
         XCTAssertEqual(ended.elapsed, 100)
@@ -30,6 +32,7 @@ final class PlaybackTimelineTests: XCTestCase {
         XCTAssertEqual(PlaybackTimeline(elapsed: .nan, duration: 100, isSeekable: true).elapsed, 0)
         XCTAssertEqual(PlaybackTimeline(elapsed: -10, duration: 100, isSeekable: true).elapsed, 0)
     }
+
     func testClockLabels() {
         XCTAssertEqual(PlaybackTimeline.label(seconds: 0), "0:00")
         XCTAssertEqual(PlaybackTimeline.label(seconds: 65.9), "1:05")

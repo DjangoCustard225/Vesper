@@ -1,0 +1,6 @@
+version: 1
+bundleID: app.vesper.go
+infoPath: Info.plist
+iconPath: Sources/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+resources:
+  - Sources/PrivacyInfo.xcprivacy

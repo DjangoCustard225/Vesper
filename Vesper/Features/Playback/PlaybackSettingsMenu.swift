@@ -12,7 +12,9 @@ struct PlaybackSettingsMenu: UIViewRepresentable {
         configuration.cornerStyle = .capsule
         configuration.contentInsets = .zero
         configuration.baseForegroundColor = .white
-        configuration.image = UIImage(systemName: "gearshape", withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold))
+        configuration.image = UIImage(
+            systemName: "gearshape",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 18, weight: .semibold))
         button.configuration = configuration
         button.showsMenuAsPrimaryAction = true
         button.preferredMenuElementOrder = .fixed
@@ -32,19 +34,25 @@ struct PlaybackSettingsMenu: UIViewRepresentable {
 final class PlaybackMenuButton: UIButton {
     var presentationChanged: ((Bool) -> Void)?
 
-    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
-                                         willDisplayMenuFor configuration: UIContextMenuConfiguration,
-                                         animator: UIContextMenuInteractionAnimating?) {
+    override func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction,
+        willDisplayMenuFor configuration: UIContextMenuConfiguration,
+        animator: UIContextMenuInteractionAnimating?
+    ) {
         super.contextMenuInteraction(interaction, willDisplayMenuFor: configuration, animator: animator)
         presentationChanged?(true)
     }
 
-    override func contextMenuInteraction(_ interaction: UIContextMenuInteraction,
-                                         willEndFor configuration: UIContextMenuConfiguration,
-                                         animator: UIContextMenuInteractionAnimating?) {
+    override func contextMenuInteraction(
+        _ interaction: UIContextMenuInteraction,
+        willEndFor configuration: UIContextMenuConfiguration,
+        animator: UIContextMenuInteractionAnimating?
+    ) {
         super.contextMenuInteraction(interaction, willEndFor: configuration, animator: animator)
         if let animator {
             animator.addCompletion { [weak self] in self?.presentationChanged?(false) }
-        } else { presentationChanged?(false) }
+        } else {
+            presentationChanged?(false)
+        }
     }
 }

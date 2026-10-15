@@ -16,6 +16,7 @@ import Foundation
         self.limit = max(1, limit)
         self.load = load
     }
+
     deinit { for work in running.values { work.task.cancel() } }
 
     public func update(_ urls: [URL]) {
@@ -28,12 +29,15 @@ import Foundation
         }
         schedule()
     }
+
     public func cancel() {
-        urls = []; completed = []
+        urls = []
+        completed = []
         let previous = running
         running = [:]
         for work in previous.values { work.task.cancel() }
     }
+
     private func schedule() {
         let load = load
         for url in urls where running[url] == nil && !completed.contains(url) {
@@ -47,6 +51,7 @@ import Foundation
             running[url] = Work(id: id, task: task)
         }
     }
+
     private func finish(_ url: URL, id: UUID) {
         guard running[url]?.id == id else { return }
         running[url] = nil

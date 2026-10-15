@@ -14,5 +14,5 @@ with tempfile.TemporaryDirectory(prefix="vesper-mpv-tests-") as directory:
     source = Path(directory) / "Regression.swift"
     binary = Path(directory) / "Regression"
     source.write_text((root / "Tests/MPVPlaybackMocks.swift").read_text() + "\n" + controller + "\n" + (root / "Tests/MPVPlaybackControllerTests.swift").read_text())
-    subprocess.run(["swiftc", "-swift-version", "5", "-parse-as-library", str(source), str(playback / "PlaybackState.swift"), str(root / "Core/Sources/VesperCore/PlaybackTimeline.swift"), "-o", str(binary)], check=True)
+    subprocess.run(["swiftc", "-swift-version", "5", "-parse-as-library", str(source), str(playback / "PlaybackState.swift"), str(root / "Core/Sources/VesperCore/PlaybackTimeline.swift"), str(root / "Core/Sources/VesperCore/PlaybackProgressReporter.swift"), "-o", str(binary)], check=True)
     subprocess.run([str(binary)], check=True)

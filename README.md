@@ -18,6 +18,8 @@
 
 Browse with TMDB, save titles to your library, and watch in Vesper or with external video players like Infuse or VLC.
 
+**Vesper Go** uses external players only and installs separately alongside Vesper.
+
 ## Screenshots
 
 <p align="center">
@@ -33,7 +35,7 @@ Browse with TMDB, save titles to your library, and watch in Vesper or with exter
 ## Features
 
 - Browse movies and shows with immersive artwork and a customizable home carousel.
-- Explore cast, crew, and related titles.
+- Explore cast, crew, actor filmographies, and related titles.
 - Pick a season and browse episodes.
 - Search titles and save favorites to your library.
 - Back up and restore your library.
@@ -45,7 +47,7 @@ Browse with TMDB, save titles to your library, and watch in Vesper or with exter
 1. Download the [latest release](https://github.com/DjangoCustard225/Vesper/releases/latest), sign the unsigned IPA, and install it on **iOS 27 or later**.
 2. In **Settings → TMDB**, save and verify your [TMDB API key or Read Access Token](https://www.themoviedb.org/settings/api).
 3. In **Settings → Add-ons → Add add-on**, install a provider using its manifest URL or `stremio://` link.
-4. Open a title, tap **Play**, and choose a source. Select **Built-in**, **Infuse**, or **VLC** in **Settings → Video Player**.
+4. Open a title, tap **Play**, and choose a source. Select **mpv**, **AVPlayer**, **Infuse**, or **VLC** in **Settings → Video Player**.
 
 Use providers with playable HTTP/HTTPS sources. Vesper has no on-device torrent engine.
 
@@ -57,4 +59,4 @@ Credentials and add-on configuration are stored in **iOS Keychain**. Your librar
 
 Vesper is independent of Stremio. This product uses the TMDB API but is not endorsed or certified by TMDB.
 
-Built-in playback uses [MPVKit’s libmpv](https://github.com/mpvkit/MPVKit), licensed under LGPL 3.0 or later.
+Built-in playback uses [MPVKit’s libmpv](https://github.com/mpvkit/MPVKit) or [AetherEngine with AVPlayer](https://github.com/superuser404notfound/AetherEngine). License notices are available in Settings → About → Credits.

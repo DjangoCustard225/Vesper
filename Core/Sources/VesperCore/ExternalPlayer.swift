@@ -1,23 +1,74 @@
 import Foundation
 
 public enum VideoPlayer: String, CaseIterable, Identifiable, Codable, Sendable {
-    case builtIn, vlc, infuse
+    #if !VESPER_GO
+    case builtIn, aether
+    #endif
+    case vlc, infuse, outplayer
+
     public var id: String { rawValue }
-    public var title: String { switch self { case .builtIn: "Built-in"; case .vlc: "VLC"; case .infuse: "Infuse" } }
-    public static var externalPlayers: [VideoPlayer] { [.vlc, .infuse] }
-    public static func preferred(storedValue: String?) -> VideoPlayer {
-        storedValue.flatMap(VideoPlayer.init(rawValue:)) ?? .builtIn
+
+    public var title: String {
+        switch self {
+        #if !VESPER_GO
+        case .builtIn: "mpv"
+        case .aether: "AVPlayer"
+        #endif
+        case .vlc: "VLC"
+        case .infuse: "Infuse"
+        case .outplayer: "Outplayer"
+        }
     }
+    #if !VESPER_GO
+    public var isInternal: Bool { self == .builtIn || self == .aether }
+    #endif
+
+    public static var externalPlayers: [VideoPlayer] { [.vlc, .infuse, .outplayer] }
+
+    public var detectionURL: URL? {
+        switch self {
+        case .vlc: URL(string: "vlc-x-callback://x-callback-url/stream")
+        case .infuse: URL(string: "infuse://x-callback-url/play")
+        case .outplayer: URL(string: "outplayer://x-callback-url/play")
+        #if !VESPER_GO
+        case .builtIn, .aether: nil
+        #endif
+        }
+    }
+
+    public static func availablePlayers(_ candidates: [VideoPlayer], canOpen: (URL) -> Bool) -> [VideoPlayer]
+    {
+        candidates.filter { $0.detectionURL.map(canOpen) ?? true }
+    }
+
+    public func availablePreference(in players: [VideoPlayer]) -> VideoPlayer {
+        if players.contains(self) { return self }
+        return players.first(where: { $0 == .infuse })
+            ?? players.first(where: { $0.detectionURL != nil }) ?? players.first ?? self
+    }
+    #if VESPER_GO
+    public static func preferred(storedValue: String?) -> VideoPlayer {
+        storedValue.flatMap(VideoPlayer.init(rawValue:)) ?? .infuse
+    }
+    #else
+    public static func preferred(storedValue: String?) -> VideoPlayer {
+        let saved = storedValue.flatMap(VideoPlayer.init(rawValue:))
+        return saved ?? .builtIn
+    }
+    #endif
+
     public func launchURL(for stream: URL) throws -> URL {
         _ = try AddonURL.http(stream.absoluteString)
-        guard self != .builtIn else { throw AddonError.unsupportedStream }
-        var components = URLComponents()
-        components.scheme = self == .vlc ? "vlc-x-callback" : "infuse"
-        components.host = "x-callback-url"
-        components.path = self == .vlc ? "/stream" : "/play"
+        guard let target = detectionURL,
+            var components = URLComponents(url: target, resolvingAgainstBaseURL: false)
+        else {
+            throw AddonError.unsupportedStream
+        }
         let items = [URLQueryItem(name: "url", value: stream.absoluteString)]
         // Encode nested URLs completely, preserving signed queries, percent escapes and '+' values.
-        components.percentEncodedQuery = items.map { AddonURL.encode($0.name) + "=" + AddonURL.encode($0.value ?? "") }.joined(separator: "&")
+        components.percentEncodedQuery = items.map {
+            AddonURL.encode($0.name) + "=" + AddonURL.encode($0.value ?? "")
+        }.joined(separator: "&")
         guard let url = components.url else { throw AddonError.invalidURL }
         return url
     }
@@ -25,7 +76,7 @@ public enum VideoPlayer: String, CaseIterable, Identifiable, Codable, Sendable {
 
 public enum AddonPolicy {
     public static func isCinemeta(_ addon: InstalledAddon) -> Bool {
-        addon.manifest.id.lowercased() == "com.linvo.cinemeta" ||
-        addon.manifestURL.host?.lowercased() == "v3-cinemeta.strem.io"
+        addon.manifest.id.lowercased() == "com.linvo.cinemeta"
+            || addon.manifestURL.host?.lowercased() == "v3-cinemeta.strem.io"
     }
 }

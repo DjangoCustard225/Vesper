@@ -19,8 +19,7 @@ struct CatalogContentView: View {
             MediaGrid(items: model.items, onNearEnd: requestNextPage)
             if model.loading {
                 Group {
-                    if let loadingTitle { ProgressView(loadingTitle) }
-                    else { ProgressView() }
+                    if let loadingTitle { ProgressView(loadingTitle) } else { ProgressView() }
                 }.padding(progressPadding)
             }
             if let error = model.error {
@@ -28,7 +27,8 @@ struct CatalogContentView: View {
             }
             if !model.loading, model.items.isEmpty, model.error == nil {
                 if let emptyDescription {
-                    ContentUnavailableView(emptyTitle, systemImage: "film", description: Text(emptyDescription))
+                    ContentUnavailableView(
+                        emptyTitle, systemImage: "film", description: Text(emptyDescription))
                 } else {
                     ContentUnavailableView(emptyTitle, systemImage: "film")
                 }

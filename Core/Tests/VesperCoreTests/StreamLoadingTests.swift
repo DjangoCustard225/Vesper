@@ -4,9 +4,11 @@ import XCTest
 @MainActor
 final class StreamLoadingTests: XCTestCase {
     private func results(_ name: String) -> StreamResults {
-        let source = try! JSONDecoder().decode(StreamSource.self, from: Data("{\"url\":\"https://video.example/\(name)\"}".utf8))
+        let source = try! JSONDecoder().decode(
+            StreamSource.self, from: Data("{\"url\":\"https://video.example/\(name)\"}".utf8))
         return StreamResults(options: [StreamOption(addonName: name, source: source)])
     }
+
     func testOldRetryCannotOverwriteNewerPartialOrFinalResults() async {
         let model = StreamLoadingController()
         var release: CheckedContinuation<Void, Never>?
@@ -25,10 +27,12 @@ final class StreamLoadingTests: XCTestCase {
             return self.results("new-final")
         }
         oldUpdate?(results("late-update"))
-        release?.resume(); await old.value
+        release?.resume()
+        await old.value
         XCTAssertEqual(model.result.options.first?.addonName, "new-final")
         XCTAssertFalse(model.loading)
     }
+
     func testRetryRetainsVisibleSourcesUntilReplacementArrives() async {
         let model = StreamLoadingController()
         await model.load(key: "video") { _ in self.results("existing") }
@@ -42,6 +46,7 @@ final class StreamLoadingTests: XCTestCase {
         }
         XCTAssertEqual(model.result.options.first?.addonName, "final")
     }
+
     func testDifferentVideoOrProviderContextClearsPreviousSources() async {
         let model = StreamLoadingController()
         await model.load(key: "video:providers1") { _ in self.results("existing") }
@@ -53,19 +58,25 @@ final class StreamLoadingTests: XCTestCase {
             XCTAssertTrue(model.result.options.isEmpty)
             return StreamResults()
         }
-        XCTAssertTrue(model.result.options.isEmpty); XCTAssertFalse(model.loading)
+        XCTAssertTrue(model.result.options.isEmpty)
+        XCTAssertFalse(model.loading)
     }
+
     func testDismissalRejectsUncooperativeProviderCompletion() async {
         let model = StreamLoadingController()
         var release: CheckedContinuation<Void, Never>?
         let task = Task {
             await model.load(key: "video") { update in
                 await withCheckedContinuation { release = $0 }
-                update(self.results("late")); return self.results("late")
+                update(self.results("late"))
+                return self.results("late")
             }
         }
         while release == nil { await Task.yield() }
-        model.cancel(); release?.resume(); await task.value
-        XCTAssertTrue(model.result.options.isEmpty); XCTAssertFalse(model.loading)
+        model.cancel()
+        release?.resume()
+        await task.value
+        XCTAssertTrue(model.result.options.isEmpty)
+        XCTAssertFalse(model.loading)
     }
 }

@@ -1,0 +1,17 @@
+{
+  "excludedSources": [
+    "Features/Discover/ContinueWatchingShelf.swift",
+    "Features/Playback/AetherPlaybackController.swift",
+    "Features/Playback/AetherVideoSurface.swift",
+    "Features/Playback/BuiltInPlayerPresentation.swift",
+    "Features/Playback/BuiltInPlayerView.swift",
+    "Features/Playback/MPVPlaybackController.swift",
+    "Features/Playback/MPVSession.swift",
+    "Features/Playback/MPVVideoSurface.swift",
+    "Features/Playback/PlaybackControlling.swift",
+    "Features/Playback/PlaybackRequest.swift",
+    "Features/Playback/PlaybackSettingsMenu.swift",
+    "Features/Playback/PlaybackState.swift",
+    "Features/Playback/VideoPlayerGestures.swift"
+  ]
+}

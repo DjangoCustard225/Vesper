@@ -5,10 +5,7 @@ import FoundationNetworking
 #endif
 
 final class SessionOwnershipTests: XCTestCase {
-    override func tearDown() {
-        FixtureURLProtocol.handler = nil
-        super.tearDown()
-    }
+    private let fixture = HTTPFixture()
 
     func testReleasingAddonClientLeavesBorrowedSessionUsable() async throws {
         try await checkBorrowedSession { AddonClient(session: $0) }
@@ -23,18 +20,17 @@ final class SessionOwnershipTests: XCTestCase {
     }
 
     private func checkBorrowedSession(_ makeClient: (URLSession) -> AnyObject) async throws {
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.protocolClasses = [FixtureURLProtocol.self]
-        let session = URLSession(configuration: configuration)
+        let session = fixture.session()
         defer { session.invalidateAndCancel() }
-        FixtureURLProtocol.handler = { _ in (200, Data("available".utf8)) }
+        fixture.handler = { _ in (200, Data("available".utf8)) }
         weak var released: AnyObject?
         do {
             let client = makeClient(session)
             released = client
         }
         XCTAssertNil(released)
-        let (data, response) = try await session.data(from: URL(string: "https://provider.example/health")!)
+        let (data, response) = try await session.data(
+            for: fixture.request(URL(string: "https://provider.example/health")!))
         XCTAssertEqual((response as? HTTPURLResponse)?.statusCode, 200)
         XCTAssertEqual(String(decoding: data, as: UTF8.self), "available")
     }

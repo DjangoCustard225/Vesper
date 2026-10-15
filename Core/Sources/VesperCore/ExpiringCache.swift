@@ -28,7 +28,8 @@ struct ExpiringCache<Value: Sendable>: Sendable {
     mutating func insert(_ value: Value, for key: String, now: Date = Date()) {
         entries = entries.filter { now.timeIntervalSince($0.value.savedAt) < lifetime }
         if entries[key] == nil, entries.count >= capacity,
-           let oldest = entries.min(by: { $0.value.savedAt < $1.value.savedAt })?.key {
+            let oldest = entries.min(by: { $0.value.savedAt < $1.value.savedAt })?.key
+        {
             entries[oldest] = nil
         }
         entries[key] = Entry(savedAt: now, value: value)

@@ -27,7 +27,10 @@ final class MPVSession: @unchecked Sendable {
     func start(url: URL) {
         queue.async { [self] in
             guard !stopped, handle == nil else { return }
-            guard let context = mpv_create() else { fail("The video player could not start."); return }
+            guard let context = mpv_create() else {
+                fail("The video player could not start.")
+                return
+            }
             handle = context
             let options = [
                 "config": "no", "terminal": "no", "osd-level": "0", "osd-on-seek": "no",
@@ -39,7 +42,7 @@ final class MPVSession: @unchecked Sendable {
                 "audio-pitch-correction": "yes",
                 "sub-font-size": "38", "sub-back-color": "#80000000",
                 "sub-border-style": "background-box",
-                "sub-border-size": "0", "sub-shadow-offset": "4"
+                "sub-border-size": "0", "sub-shadow-offset": "4",
             ]
             for (name, value) in options {
                 if mpv_set_option_string(context, name, value) < 0 {
@@ -50,10 +53,13 @@ final class MPVSession: @unchecked Sendable {
             // OSC belongs to Lua, which the iOS distribution may omit. The
             // missing optional script must never prevent the renderer starting.
             mpv_set_option_string(context, "osc", "no")
-            var windowID = Int64(bitPattern: UInt64(UInt(bitPattern: Unmanaged.passUnretained(layer).toOpaque())))
+            var windowID = Int64(
+                bitPattern: UInt64(UInt(bitPattern: Unmanaged.passUnretained(layer).toOpaque())))
             guard mpv_set_option(context, "wid", MPV_FORMAT_INT64, &windowID) >= 0,
-                  mpv_initialize(context) >= 0 else {
-                fail("The video renderer could not start."); return
+                mpv_initialize(context) >= 0
+            else {
+                fail("The video renderer could not start.")
+                return
             }
             // State notifications are drained at 20 Hz; timeline updates stay at
             // 4 Hz so SwiftUI does not redraw controls for every decoded frame.
@@ -149,17 +155,24 @@ final class MPVSession: @unchecked Sendable {
             if event.event_id == MPV_EVENT_NONE { break }
             switch event.event_id {
             case MPV_EVENT_FILE_LOADED:
-                loaded = true; ended = false
-                readTracks(); changed = true
+                loaded = true
+                ended = false
+                readTracks()
+                changed = true
             case MPV_EVENT_PLAYBACK_RESTART:
-                awaitingSeek = false; ended = false; changed = true
+                awaitingSeek = false
+                ended = false
+                changed = true
             case MPV_EVENT_END_FILE:
                 if let data = event.data?.assumingMemoryBound(to: mpv_event_end_file.self).pointee {
                     if data.reason == MPV_END_FILE_REASON_ERROR {
                         fail("This source could not be played. Try another source or an external player.")
                         return
                     }
-                    if data.reason == MPV_END_FILE_REASON_EOF, !awaitingSeek { ended = true; changed = true }
+                    if data.reason == MPV_END_FILE_REASON_EOF, !awaitingSeek {
+                        ended = true
+                        changed = true
+                    }
                 }
             case MPV_EVENT_COMMAND_REPLY:
                 if event.error < 0 {
@@ -167,7 +180,8 @@ final class MPVSession: @unchecked Sendable {
                     return
                 }
             case MPV_EVENT_SHUTDOWN:
-                shutdown(); return
+                shutdown()
+                return
             default: break
             }
         }
@@ -175,17 +189,22 @@ final class MPVSession: @unchecked Sendable {
         guard changed || ticks % 5 == 0 else { return }
         if ticks % 20 == 0 { readTracks() }
         if !awaitingSeek, loaded, flag("eof-reached") { ended = true }
-        let state = MPVSnapshot(elapsed: number("time-pos"), duration: number("duration"),
-                                seekable: flag("seekable"), loaded: loaded,
-                                buffering: !loaded || flag("paused-for-cache"), ended: ended,
-                                audio: audio, subtitles: subtitles,
-                                selectedAudio: trackID("aid"), selectedSubtitle: trackID("sid"))
-        if state != lastSnapshot { lastSnapshot = state; receive(.state(state)) }
+        let state = MPVSnapshot(
+            elapsed: number("time-pos"), duration: number("duration"),
+            seekable: flag("seekable"), loaded: loaded,
+            buffering: !loaded || flag("paused-for-cache"), ended: ended,
+            audio: audio, subtitles: subtitles,
+            selectedAudio: trackID("aid"), selectedSubtitle: trackID("sid"))
+        if state != lastSnapshot {
+            lastSnapshot = state
+            receive(.state(state))
+        }
     }
 
     private func number(_ name: String) -> Double {
         var value: Double = 0
-        guard let handle, mpv_get_property(handle, name, MPV_FORMAT_DOUBLE, &value) >= 0, value.isFinite else { return 0 }
+        guard let handle, mpv_get_property(handle, name, MPV_FORMAT_DOUBLE, &value) >= 0, value.isFinite
+        else { return 0 }
         return value
     }
 
@@ -223,12 +242,15 @@ final class MPVSession: @unchecked Sendable {
                     trackID = Int32(exactly: value.u.int64)
                 }
             }
-            guard let id = trackID, id >= 0, let type = fields["type"], type == "audio" || type == "sub" else { continue }
-            let title = [fields["title"], fields["lang"]].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+            guard let id = trackID, id >= 0, let type = fields["type"], type == "audio" || type == "sub"
+            else { continue }
+            let title = [fields["title"], fields["lang"]].compactMap { $0 }.filter { !$0.isEmpty }.joined(
+                separator: " · ")
             let name = title.isEmpty ? "\(type == "audio" ? "Audio" : "Subtitle") \(id)" : title
             let track = PlaybackTrack(id: id, name: name)
             if type == "audio" { audio.append(track) } else { subtitles.append(track) }
         }
-        self.audio = audio; self.subtitles = subtitles
+        self.audio = audio
+        self.subtitles = subtitles
     }
 }

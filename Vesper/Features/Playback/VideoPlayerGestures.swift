@@ -42,7 +42,8 @@ struct PlayerHoldGesture: UIGestureRecognizerRepresentable {
             self.excludedFrames = excludedFrames
         }
 
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool
+        {
             allowsPlayerGestureTouch(touch, excluding: excludedFrames)
         }
     }
@@ -72,7 +73,8 @@ enum PlayerSwipeSide { case brightness, volume }
             gestureStart = current
         case .volume:
             volumeView.layoutIfNeeded()
-            gestureStart = volumeSlider().map { CGFloat($0.value) }
+            gestureStart =
+                volumeSlider().map { CGFloat($0.value) }
                 ?? CGFloat(AVAudioSession.sharedInstance().outputVolume)
         }
     }
@@ -92,9 +94,13 @@ enum PlayerSwipeSide { case brightness, volume }
     }
 
     func restoreBrightness() {
-        defer { previousBrightness = nil; lastGestureBrightness = nil }
+        defer {
+            previousBrightness = nil
+            lastGestureBrightness = nil
+        }
         guard let brightnessScreen, let previousBrightness, let lastGestureBrightness,
-              abs(brightnessScreen.brightness - lastGestureBrightness) < 0.01 else { return }
+            abs(brightnessScreen.brightness - lastGestureBrightness) < 0.01
+        else { return }
         brightnessScreen.brightness = previousBrightness
     }
 
@@ -112,7 +118,9 @@ enum PlayerSwipeSide { case brightness, volume }
 
 struct SystemVolumeAttachment: UIViewRepresentable {
     let adjustments: PlayerSystemAdjustments
+
     func makeUIView(context: Context) -> MPVolumeView { adjustments.volumeView }
+
     func updateUIView(_ view: MPVolumeView, context: Context) {}
 }
 
@@ -222,12 +230,15 @@ struct PlayerAdjustmentCapture: UIViewRepresentable {
         return abs(offset.y) >= abs(offset.x) * 0.8
     }
 
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
-                           shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
         otherGestureRecognizer is UILongPressGestureRecognizer
     }
 }
 
+@MainActor
 private func allowsPlayerGestureTouch(_ touch: UITouch, excluding frames: [CGRect]) -> Bool {
     // SwiftUI buttons and the timeline can share their hosting UIView. Test
     // their actual frames as well as UIKit controls before claiming a touch.

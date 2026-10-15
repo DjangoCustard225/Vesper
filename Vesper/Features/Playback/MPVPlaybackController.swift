@@ -34,19 +34,20 @@ final class MPVPlaybackController {
     @ObservationIgnored private var awaitingResume: Double?
     @ObservationIgnored private let onProgress: (@MainActor (PlaybackProgressUpdate) -> Void)?
     @ObservationIgnored private let clock: () -> TimeInterval
-    @ObservationIgnored private var lastProgressTime: TimeInterval = -.infinity
-    @ObservationIgnored private var lastProgress: PlaybackProgressUpdate?
+    @ObservationIgnored private var progressReporter = PlaybackProgressReporter()
 
-    init(url: URL, resumeSeconds: Double = 0,
-         onProgress: (@MainActor (PlaybackProgressUpdate) -> Void)? = nil,
-         clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }) {
+    init(
+        url: URL, resumeSeconds: Double = 0,
+        onProgress: (@MainActor (PlaybackProgressUpdate) -> Void)? = nil,
+        clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
+    ) {
         self.url = url
         self.pendingResume = resumeSeconds.isFinite && resumeSeconds > 0 ? resumeSeconds : nil
         self.onProgress = onProgress
         self.clock = clock
     }
 
-    deinit {
+    isolated deinit {
         session?.stop()
         openingTimeout?.cancel()
         observers.forEach(NotificationCenter.default.removeObserver)
@@ -77,7 +78,8 @@ final class MPVPlaybackController {
             }
         }
         self.session = session
-        wantsPlayback = true; isPlaying = true
+        wantsPlayback = true
+        isPlaying = true
         session.start(url: url)
         applyPlaybackRate()
         if fillsScreen { session.fill(true) }
@@ -90,8 +92,9 @@ final class MPVPlaybackController {
 
     func togglePlayback() {
         guard started, !stopped, error == nil else { return }
-        if isPlaying { pause() }
-        else {
+        if isPlaying {
+            pause()
+        } else {
             do {
                 if !ownsAudioSession {
                     try AVAudioSession.sharedInstance().setActive(true)
@@ -102,8 +105,10 @@ final class MPVPlaybackController {
                 return
             }
             if hasEnded {
-                session?.seek(0); hasEnded = false
-                timeline = PlaybackTimeline(elapsed: 0, duration: timeline.duration, isSeekable: timeline.isSeekable)
+                session?.seek(0)
+                hasEnded = false
+                timeline = PlaybackTimeline(
+                    elapsed: 0, duration: timeline.duration, isSeekable: timeline.isSeekable)
             }
             wantsPlayback = true
             applyPlaybackRate()
@@ -126,9 +131,11 @@ final class MPVPlaybackController {
 
     func seek(fraction: Double) {
         guard let seconds = timeline.seekTarget(fraction: fraction), !stopped, error == nil else { return }
-        pendingResume = nil; awaitingResume = nil
+        pendingResume = nil
+        awaitingResume = nil
         session?.seek(seconds)
-        timeline = PlaybackTimeline(elapsed: seconds, duration: timeline.duration, isSeekable: timeline.isSeekable)
+        timeline = PlaybackTimeline(
+            elapsed: seconds, duration: timeline.duration, isSeekable: timeline.isSeekable)
     }
 
     func skip(seconds: Double) {
@@ -156,7 +163,8 @@ final class MPVPlaybackController {
 
     func beginBoost() {
         guard started, loaded, !stopped, error == nil, wantsPlayback, isPlaying,
-              !isBuffering, !hasEnded, !isBoosting else { return }
+            !isBuffering, !hasEnded, !isBoosting
+        else { return }
         isBoosting = true
         applyPlaybackRate()
     }
@@ -185,11 +193,15 @@ final class MPVPlaybackController {
         guard !stopped else { return }
         reportProgress(force: true)
         stopped = true
-        isBoosting = false; wantsPlayback = false; isPlaying = false
-        openingTimeout?.cancel(); openingTimeout = nil
+        isBoosting = false
+        wantsPlayback = false
+        isPlaying = false
+        openingTimeout?.cancel()
+        openingTimeout = nil
         observers.forEach(NotificationCenter.default.removeObserver)
         observers.removeAll()
-        session?.stop(); session = nil
+        session?.stop()
+        session = nil
         if started { UIApplication.shared.isIdleTimerDisabled = previousIdleTimer }
         if ownsAudioSession {
             try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
@@ -199,37 +211,54 @@ final class MPVPlaybackController {
 
     private func observeAudioSession() {
         let center = NotificationCenter.default
-        observers.append(center.addObserver(forName: AVAudioSession.didBecomeInactiveNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self, !self.stopped else { return }
-                self.ownsAudioSession = false
-                self.pause()
-            }
-        })
-        observers.append(center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] notification in
-            let value = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
-            if value == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue {
-                Task { @MainActor [weak self] in self?.pause() }
-            }
-        })
-        observers.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.pause()
-                self?.session?.suspendVideo(true)
-            }
-        })
-        observers.append(center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor [weak self] in self?.session?.suspendVideo(false) }
-        })
+        observers.append(
+            center.addObserver(
+                forName: AVAudioSession.didBecomeInactiveNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    guard let self, !self.stopped else { return }
+                    self.ownsAudioSession = false
+                    self.pause()
+                }
+            })
+        observers.append(
+            center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) {
+                [weak self] notification in
+                let value = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+                if value == AVAudioSession.RouteChangeReason.oldDeviceUnavailable.rawValue {
+                    Task { @MainActor [weak self] in self?.pause() }
+                }
+            })
+        observers.append(
+            center.addObserver(
+                forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.pause()
+                    self?.session?.suspendVideo(true)
+                }
+            })
+        observers.append(
+            center.addObserver(
+                forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.session?.suspendVideo(false) }
+            })
     }
 
     private func update(_ state: MPVSnapshot) {
         loaded = state.loaded
-        timeline = PlaybackTimeline(elapsed: state.elapsed, duration: state.duration, isSeekable: state.seekable)
+        timeline = PlaybackTimeline(
+            elapsed: state.elapsed, duration: state.duration, isSeekable: state.seekable)
         isBuffering = state.buffering && !state.ended
-        audioTracks = state.audio; subtitleTracks = state.subtitles
-        selectedAudio = state.selectedAudio; selectedSubtitle = state.selectedSubtitle
-        if state.loaded { openingTimeout?.cancel(); openingTimeout = nil }
+        audioTracks = state.audio
+        subtitleTracks = state.subtitles
+        selectedAudio = state.selectedAudio
+        selectedSubtitle = state.selectedSubtitle
+        if state.loaded {
+            openingTimeout?.cancel()
+            openingTimeout = nil
+        }
         if state.ended {
             wantsPlayback = false
             isBoosting = false
@@ -256,22 +285,25 @@ final class MPVPlaybackController {
 
     private func reportProgress(force: Bool) {
         guard let onProgress, loaded, !stopped, pendingResume == nil, awaitingResume == nil,
-              timeline.isSeekable, timeline.duration > 0,
-              timeline.elapsed >= 5 || hasEnded else { return }
-        let update = PlaybackProgressUpdate(elapsed: timeline.elapsed, duration: timeline.duration, ended: hasEnded)
-        let complete = update.ended || update.elapsed / update.duration >= 0.95
-        let wasComplete = lastProgress.map { $0.ended || $0.elapsed / $0.duration >= 0.95 } ?? false
-        guard update != lastProgress, force || complete != wasComplete || clock() - lastProgressTime >= 15 else { return }
-        lastProgress = update; lastProgressTime = clock()
-        onProgress(update)
+            timeline.isSeekable, timeline.duration > 0,
+            timeline.elapsed >= 5 || hasEnded
+        else { return }
+        if let update = progressReporter.checkpoint(
+            timeline: timeline, ended: hasEnded, force: force, now: clock())
+        {
+            onProgress(update)
+        }
     }
 
     private func fail(_ message: String) {
         reportProgress(force: true)
-        isBoosting = false; wantsPlayback = false
+        isBoosting = false
+        wantsPlayback = false
         error = message
-        isBuffering = false; isPlaying = false
-        openingTimeout?.cancel(); openingTimeout = nil
+        isBuffering = false
+        isPlaying = false
+        openingTimeout?.cancel()
+        openingTimeout = nil
         session?.stop()
         UIApplication.shared.isIdleTimerDisabled = previousIdleTimer
     }

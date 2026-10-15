@@ -4,6 +4,7 @@ struct AboutDescriptionView: View {
     @Environment(\.dismiss) private var dismiss
     let title: String
     let description: String
+
     var body: some View {
         NavigationStack {
             ScrollView {

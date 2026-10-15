@@ -1,20 +1,5 @@
 import Foundation
 
-struct PlaybackRequest: Identifiable {
-    let id = UUID()
-    let url: URL
-    let title: String
-    let subtitle: String?
-    var resumeSeconds: Double = 0
-    var onProgress: (@MainActor (PlaybackProgressUpdate) -> Void)? = nil
-}
-
-struct PlaybackProgressUpdate: Equatable, Sendable {
-    let elapsed: Double
-    let duration: Double
-    let ended: Bool
-}
-
 struct PlaybackTrack: Identifiable, Equatable, Sendable {
     let id: Int32
     let name: String

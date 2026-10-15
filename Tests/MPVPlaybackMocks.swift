@@ -18,10 +18,13 @@ let AVAudioSessionRouteChangeReasonKey = "routeReason"
         static let notifyOthersOnDeactivation = Self(rawValue: 1)
     }
     static let instance = AVAudioSession()
+
     static func sharedInstance() -> AVAudioSession { instance }
     static let didBecomeInactiveNotification = Notification.Name("inactive")
     static let routeChangeNotification = Notification.Name("route")
+
     func setCategory(_ category: Category, mode: Mode) throws {}
+
     func setActive(_ active: Bool, options: SetActiveOptions = []) throws {}
 }
 final class MPVSession: @unchecked Sendable {
@@ -30,17 +33,35 @@ final class MPVSession: @unchecked Sendable {
     var operations: [String] = []
     var rates: [Float] = []
     var seeks: [Double] = []
+
     init(layer: CAMetalLayer, receive: @escaping @Sendable (MPVPlaybackEvent) -> Void) {
-        self.receive = receive; Self.latest = self
+        self.receive = receive
+        Self.latest = self
     }
+
     func start(url: URL) { operations.append("start") }
+
     func pause(_ paused: Bool) { operations.append("pause:\(paused)") }
-    func rate(_ value: Float) { rates.append(value); operations.append("rate:\(value)") }
-    func seek(_ value: Double) { seeks.append(value); operations.append("seek") }
+
+    func rate(_ value: Float) {
+        rates.append(value)
+        operations.append("rate:\(value)")
+    }
+
+    func seek(_ value: Double) {
+        seeks.append(value)
+        operations.append("seek")
+    }
+
     func select(track: Int32, subtitle: Bool) { operations.append("\(subtitle ? "sid" : "aid"):\(track)") }
+
     func fill(_ fill: Bool) { operations.append("fill:\(fill)") }
+
     func suspendVideo(_ suspended: Bool) { operations.append("video:\(suspended)") }
+
     func stop() { operations.append("stop") }
+
     func emit(_ snapshot: MPVSnapshot) { receive(.state(snapshot)) }
+
     func fail() { receive(.failure("Test source failure")) }
 }

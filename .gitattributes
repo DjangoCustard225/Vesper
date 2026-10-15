@@ -1,2 +1,11 @@
-# Keep build and asset tooling out of GitHub's app language statistics.
+# Keep first-party app language statistics focused on Swift.
 Scripts/** -linguist-detectable
+Dependencies/** linguist-vendored
+*.xcodeproj/** linguist-generated
+
+# Preserve the bundled upstream license text byte-for-byte, including its final blank line.
+Vesper/Resources/*-LICENSE.txt whitespace=-blank-at-eof
+
+# Local publishing rules do not belong in downloadable source archives.
+.gitignore export-ignore
+.gitattributes export-ignore

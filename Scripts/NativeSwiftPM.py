@@ -36,6 +36,9 @@ if code == 0 and sys.argv[1] == "build" and "--show-bin-path" not in args:
     for binary in native.glob("*-App"):
         if binary.is_file():
             shutil.copy2(binary, destination / binary.name)
+    # Preserve SwiftPM resources used by AetherEngine.
+    for bundle in native.glob("*.bundle"):
+        shutil.copytree(bundle, destination / bundle.name, dirs_exist_ok=True)
     # xtool discovers binary targets and embeds their dynamic frameworks from this directory.
     for framework in native.glob("*.framework"):
         copied = destination / framework.name

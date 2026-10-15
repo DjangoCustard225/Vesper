@@ -16,12 +16,16 @@ struct RelatedTitlesView: View {
                     }
                     if model.loading { ProgressView().frame(maxWidth: .infinity) }
                     if let error = model.error {
-                        ErrorNotice(message: error) { Task { await model.load(store.relatedSource(details)) } }.padding(.horizontal, 24)
+                        ErrorNotice(message: error) {
+                            Task { await model.load(store.relatedSource(details)) }
+                        }.padding(.horizontal, 24)
                     }
                 }.padding(.horizontal, -24)
             }
         }
-        .task(id: "\(details.mediaType):\(details.id):\(store.tmdbRevision)") { await model.load(store.relatedSource(details)) }
+        .task(id: "\(details.mediaType):\(details.id):\(store.tmdbRevision)") {
+            await model.load(store.relatedSource(details))
+        }
         .onChange(of: store.cacheChanges) { _, change in model.refresh(cacheIDs: change.ids) }
         .onDisappear { model.cancel() }
     }

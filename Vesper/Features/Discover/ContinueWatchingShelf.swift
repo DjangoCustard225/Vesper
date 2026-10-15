@@ -5,6 +5,7 @@ struct ContinueWatchingShelf: View {
     let records: [WatchRecord]
     @State private var prefetch = PosterPrefetchState()
     @State private var visible = false
+
     private var artworkItems: [MediaItem] {
         records.map { record in
             var item = record.media
@@ -12,6 +13,7 @@ struct ContinueWatchingShelf: View {
             return item
         }
     }
+
     private var urls: [URL] { visible ? prefetch.urls(artworkItems) : [] }
 
     var body: some View {
@@ -26,12 +28,15 @@ struct ContinueWatchingShelf: View {
                             prefetch.visibility(active, key: record.media.key, items: artworkItems)
                         }
                 }
-            }.scrollTargetLayout().padding(.horizontal, 20)
+            }.padding(.horizontal, 20)
         }
-        .scrollTargetBehavior(.viewAligned).scrollIndicators(.hidden).appScrollEdges()
+        .scrollIndicators(.hidden).appScrollEdges()
         .onScrollVisibilityChange(threshold: 0.01) { visible = $0 }
         .prefetchArtwork(urls)
-        .onDisappear { visible = false; prefetch.reset() }
+        .onDisappear {
+            visible = false
+            prefetch.reset()
+        }
     }
 }
 
@@ -39,16 +44,23 @@ private struct ContinueWatchingCard: View {
     @Environment(AppStore.self) private var store
     let record: WatchRecord
     @State private var presentation: HeroPresentation?
+
     private var media: MediaItem { presentation?.media ?? record.media }
+
     private var progress: Double { min(1, max(0, record.elapsed / record.duration)) }
+
     private var playbackLabel: String {
         let minutes = Int(min(99_999, ceil(max(0, record.duration - record.elapsed) / 60)))
         let remaining = "\(minutes)m"
-        guard let episode = record.episodeKey?.split(separator: ":"), episode.count == 2 else { return remaining }
+        guard let episode = record.episodeKey?.split(separator: ":"), episode.count == 2 else {
+            return remaining
+        }
         return "S\(episode[0]), E\(episode[1]) · " + remaining
     }
+
     private var revision: String {
-        record.media.key + store.tmdbRevision.uuidString + store.metadataRevision(for: [store.detailsCacheID(record.media)])
+        record.media.key + store.tmdbRevision.uuidString
+            + store.metadataRevision(for: [store.detailsCacheID(record.media)])
     }
 
     var body: some View {
@@ -63,8 +75,11 @@ private struct ContinueWatchingCard: View {
                             .overlay(alignment: .leading) {
                                 if let presentation {
                                     artworkTitle(presentation)
-                                        .frame(width: geometry.size.width * 0.62, height: geometry.size.height * 0.4,
-                                               alignment: .leading)
+                                        .frame(
+                                            width: geometry.size.width * 0.62,
+                                            height: geometry.size.height * 0.4,
+                                            alignment: .leading
+                                        )
                                         .padding(.leading, 18).padding(.bottom, 20)
                                 }
                             }
@@ -92,7 +107,8 @@ private struct ContinueWatchingCard: View {
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.white.opacity(0.16), lineWidth: 0.5)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(
+                        .white.opacity(0.16), lineWidth: 0.5)
                 }
                 .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
@@ -102,7 +118,11 @@ private struct ContinueWatchingCard: View {
         .modifier(MediaContextMenu(item: media))
         .overlay(alignment: .bottomTrailing) {
             Menu {
-                NavigationLink { DetailView(item: media) } label: { Label("View Details", systemImage: "info.circle") }
+                NavigationLink {
+                    DetailView(item: media)
+                } label: {
+                    Label("View Details", systemImage: "info.circle")
+                }
                 MediaMenuActions(item: media)
             } label: {
                 Image(systemName: "ellipsis").font(.system(size: 19, weight: .bold))

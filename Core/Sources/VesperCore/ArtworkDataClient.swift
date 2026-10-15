@@ -7,14 +7,18 @@ public actor ArtworkDataClient {
     private let session: URLSession
     private let ownsSession: Bool
     private let memory = NSCache<NSURL, NSData>()
-    private let requests = SharedRequestPool<Data>()
-    private let limiter = PriorityRequestLimiter(limit: 4, prefetchLimit: 2)
+    private var requests = SharedRequestPool<Data>()
+    private var generation = UUID()
+    private let limiter = PriorityRequestLimiter(limit: 6, prefetchLimit: 2)
+
     public init(session: URLSession? = nil) {
         ownsSession = session == nil
-        if let session { self.session = session }
-        else {
+        if let session {
+            self.session = session
+        } else {
             let configuration = URLSessionConfiguration.default
-            configuration.urlCache = URLCache(memoryCapacity: 16 * 1024 * 1024, diskCapacity: 128 * 1024 * 1024, diskPath: "VesperArtwork")
+            configuration.urlCache = URLCache(
+                memoryCapacity: 16 * 1024 * 1024, diskCapacity: 128 * 1024 * 1024, diskPath: "VesperArtwork")
             configuration.httpCookieStorage = nil
             configuration.httpMaximumConnectionsPerHost = 6
             configuration.timeoutIntervalForRequest = 20
@@ -24,36 +28,55 @@ public actor ArtworkDataClient {
         memory.totalCostLimit = 24 * 1024 * 1024
         memory.countLimit = 150
     }
+
     deinit { if ownsSession { session.invalidateAndCancel() } }
 
     public func clearMemory() { memory.removeAllObjects() }
-    func subscriberCount(for url: URL) async -> Int { await requests.subscriberCount(for: url.absoluteString) }
+
+    public func clearCache() async {
+        generation = UUID()
+        let previous = requests
+        requests = SharedRequestPool()
+        memory.removeAllObjects()
+        await previous.cancelAll()
+        session.configuration.urlCache?.removeAllCachedResponses()
+    }
+
+    func subscriberCount(for url: URL) async -> Int {
+        await requests.subscriberCount(for: url.absoluteString)
+    }
+
     public func promote(_ url: URL) async {
         await requests.promote(url.absoluteString)
         await limiter.promote(url.absoluteString)
     }
+
     public func data(for url: URL, priority: ArtworkPriority = .visible) async throws -> Data {
         _ = try AddonURL.http(url.absoluteString)
         try Task.checkCancellation()
         if let data = memory.object(forKey: url as NSURL) { return data as Data }
-        let session = session, limiter = limiter
-        return try await requests.value(for: url.absoluteString, priority: priority,
-                                       onPromotion: { await limiter.promote(url.absoluteString) }) { demand in
+        let session = session, limiter = limiter, token = generation
+        return try await requests.value(
+            for: url.absoluteString, priority: priority,
+            onPromotion: { await limiter.promote(url.absoluteString) }
+        ) { demand in
             let data = try await limiter.run(key: url.absoluteString, demand: demand) {
                 let (data, response) = try await HTTPTransport(session: session, requestTimeout: 20)
                     .data(for: URLRequest(url: url), operation: .artwork)
                 try Task.checkCancellation()
-                guard (200..<300).contains(response.statusCode), !data.isEmpty, data.count <= 30 * 1024 * 1024 else {
+                guard (200..<300).contains(response.statusCode), !data.isEmpty else {
                     throw URLError(.badServerResponse)
                 }
                 return data
             }
             try Task.checkCancellation()
-            await self.finished(url, data: data)
+            try await self.finished(url, data: data, token: token)
             return data
         }
     }
-    private func finished(_ url: URL, data: Data) {
+
+    private func finished(_ url: URL, data: Data, token: UUID) throws {
+        guard token == generation else { throw CancellationError() }
         memory.setObject(data as NSData, forKey: url as NSURL, cost: data.count)
     }
 }

@@ -5,13 +5,23 @@ import VesperCore
 struct VesperApp: App {
     @State private var store = AppStore()
     @Environment(\.scenePhase) private var scenePhase
+
     var body: some Scene {
         WindowGroup {
             RootView().environment(store).tint(.white).preferredColorScheme(.dark)
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .background { Task { await DiagnosticRecorder.shared.flush() } }
+                    if phase == .active { store.refreshPlayers() }
+                    if phase == .background {
+                        Task {
+                            await store.flushWatchProgress()
+                            await DiagnosticRecorder.shared.flush()
+                        }
+                    }
                 }
-                .onReceive(NotificationCenter.default.publisher(for: UIApplication.didReceiveMemoryWarningNotification)) { _ in
+                .onReceive(
+                    NotificationCenter.default.publisher(
+                        for: UIApplication.didReceiveMemoryWarningNotification)
+                ) { _ in
                     Task { await ArtworkPipeline.shared.clearMemory() }
                 }
         }
@@ -25,30 +35,42 @@ struct RootView: View {
     @State private var showingSearch = false
     @State private var pendingSearchResult: MediaItem?
     @State private var searchResult: MediaItem?
+
     var body: some View {
         @Bindable var store = store
-        TabView(selection: Binding(get: { selectedTab }, set: { tab in
-            if tab == .search { showingSearch = true }
-            else { selectedTab = tab }
-        })) {
-            Tab("Discover", systemImage: "sparkles.tv", value: AppTab.discover) { NavigationStack { DiscoverView() } }
-            Tab("Library", systemImage: "rectangle.stack", value: AppTab.library) { NavigationStack { LibraryView() } }
-            Tab("Settings", systemImage: "gearshape", value: AppTab.settings) { NavigationStack { SettingsView() } }
+        TabView(
+            selection: Binding(
+                get: { selectedTab },
+                set: { tab in
+                    if tab == .search { showingSearch = true } else { selectedTab = tab }
+                })
+        ) {
+            Tab("Discover", systemImage: "sparkles.tv", value: AppTab.discover) {
+                NavigationStack { DiscoverView() }
+            }
+            Tab("Library", systemImage: "rectangle.stack", value: AppTab.library) {
+                NavigationStack { LibraryView() }
+            }
+            Tab("Settings", systemImage: "gearshape", value: AppTab.settings) { settingsNavigation }
             Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) { Color.clear }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
-        .scrollEdgeEffectHidden(true, for: .vertical)
-        .task(id: store.addonSignature + store.tmdbRevision.uuidString) { await store.refresh() }
+        .task(id: store.contentContext) { await store.refresh() }
         .onReceive(NotificationCenter.default.publisher(for: .vesperMetadataUpdated)) { notification in
             if let update = notification.object as? MetadataUpdate { store.metadataDidRefresh(update) }
         }
         .onOpenURL { url in
             // Ignore callbacks from player links created by older app versions.
-            if ["vesper", "swiftstream"].contains(url.scheme ?? ""), url.host == "player-return" { return }
-            if url.scheme == "stremio" { store.incomingAddon = url.absoluteString; store.showInstall = true }
-            else if ["vesper", "swiftstream"].contains(url.scheme ?? ""),
-                    let value = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "url" })?.value {
-                store.incomingAddon = value; store.showInstall = true
+            if AppIdentity.urlSchemes.contains(url.scheme ?? ""), url.host == "player-return" { return }
+            if url.scheme == "stremio" {
+                store.incomingAddon = url.absoluteString
+                store.showInstall = true
+            } else if AppIdentity.urlSchemes.contains(url.scheme ?? ""),
+                let value = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(
+                    where: { $0.name == "url" })?.value
+            {
+                store.incomingAddon = value
+                store.showInstall = true
             }
         }
         .sheet(isPresented: $store.showInstall) {
@@ -62,23 +84,36 @@ struct RootView: View {
                     showingSearch = false
                 }
             }
-                .presentationDetents([.large]).presentationDragIndicator(.hidden)
+            .presentationDetents([.large]).presentationDragIndicator(.hidden)
         }
         .fullScreenCover(item: $searchResult) { item in
             NavigationStack {
                 DetailView(item: item)
                     .toolbar {
                         ToolbarItem(placement: .topBarLeading) {
-                            Button { searchResult = nil } label: {
+                            Button {
+                                searchResult = nil
+                            } label: {
                                 Label("Back", systemImage: "chevron.left")
                             }.labelStyle(.iconOnly).accessibilityLabel("Back to previous tab")
                         }
                     }
             }
         }
-        .alert("Storage", isPresented: Binding(get: { store.storageError != nil }, set: { if !$0 { store.storageError = nil } })) {
+        .alert(
+            "Storage",
+            isPresented: Binding(
+                get: { store.storageError != nil }, set: { if !$0 { store.storageError = nil } })
+        ) {
             Button("OK") { store.storageError = nil }
-        } message: { Text(store.storageError ?? "") }
+        } message: {
+            Text(store.storageError ?? "")
+        }
+    }
+
+    private var settingsNavigation: some View {
+        NavigationStack { SettingsView() }
+            .toggleStyle(SwitchToggleStyle(tint: Color(white: 0.42)))
     }
 
     private func openSearchResult() {

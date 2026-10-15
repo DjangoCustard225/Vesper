@@ -6,6 +6,7 @@ import VesperCore
 struct BuiltInPlayerPresentation: UIViewControllerRepresentable {
     @Binding var request: PlaybackRequest?
     let gesturePreferences: PlayerGesturePreferences
+    let players: [VideoPlayer]
     let onDismiss: () -> Void
     let choosePlayer: (VideoPlayer) -> Void
 
@@ -38,8 +39,15 @@ struct BuiltInPlayerPresentation: UIViewControllerRepresentable {
 
         func synchronize() {
             guard !dismissing else { return }
-            guard let update, let request = update.request else { finish(); return }
-            guard player == nil, viewIfLoaded?.window != nil else { return }
+            guard let update, let request = update.request else {
+                finish()
+                return
+            }
+            if let player {
+                if player.rootView.players != update.players { player.rootView.players = update.players }
+                return
+            }
+            guard viewIfLoaded?.window != nil else { return }
             // Present from the active sheet or navigation controller containing the sources.
             var presenter: UIViewController = self
             while let parent = presenter.parent { presenter = parent }
@@ -53,14 +61,16 @@ struct BuiltInPlayerPresentation: UIViewControllerRepresentable {
             }
             playbackScene = view.window?.windowScene
             previousOrientation = playbackScene?.effectiveGeometry.interfaceOrientation ?? .unknown
-            let root = BuiltInPlayerView(request: request, gesturePreferences: update.gesturePreferences,
-                                         closePlayer: { [weak self] in
-                self?.update?.request = nil
-                self?.finish()
-            }, choosePlayer: { [weak self] choice in
-                self?.update?.choosePlayer(choice)
-                self?.finish()
-            })
+            let root = BuiltInPlayerView(
+                request: request, gesturePreferences: update.gesturePreferences, players: update.players,
+                closePlayer: { [weak self] in
+                    self?.update?.request = nil
+                    self?.finish()
+                },
+                choosePlayer: { [weak self] choice in
+                    self?.update?.choosePlayer(choice)
+                    self?.finish()
+                })
             let player = LandscapePlayerController(rootView: root)
             if previousOrientation.isLandscape { player.startingOrientation = previousOrientation }
             player.modalPresentationStyle = .fullScreen
@@ -104,6 +114,7 @@ struct BuiltInPlayerPresentation: UIViewControllerRepresentable {
     var startingOrientation = UIInterfaceOrientation.landscapeRight
 
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .landscape }
+
     override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation { startingOrientation }
 
     override func viewDidAppear(_ animated: Bool) {

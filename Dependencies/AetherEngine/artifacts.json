@@ -1,0 +1,64 @@
+{
+  "artifacts": [
+    {
+      "name": "AetherEngine",
+      "version": "7.36.0",
+      "url": "https://codeload.github.com/superuser404notfound/AetherEngine/tar.gz/refs/tags/7.36.0",
+      "sha256": "ecd4e91a359be7ba105327fb30e6246b39cf639cca97bf986189380c88234e2f",
+      "sources": [
+        "Sources/AetherEngine"
+      ],
+      "frameworks": []
+    },
+    {
+      "name": "FFmpegBuild",
+      "version": "3.7.1",
+      "url": "https://codeload.github.com/superuser404notfound/FFmpegBuild/tar.gz/refs/tags/3.7.1",
+      "sha256": "425e850da64fd077cbae6cfa6505398198ea8819fba25608e71263ad21eaa098",
+      "sources": [
+        "Sources/AetherFFmpegBuild"
+      ],
+      "frameworks": [
+        "Sources/AetherLibavcodec.xcframework",
+        "Sources/AetherLibavformat.xcframework",
+        "Sources/AetherLibavutil.xcframework",
+        "Sources/AetherLibswresample.xcframework",
+        "Sources/AetherLibswscale.xcframework",
+        "Sources/AetherLibavfilter.xcframework",
+        "Sources/AetherLibdav1d.xcframework",
+        "Sources/AetherLibzimg.xcframework",
+        "Sources/AetherLibzvbi.xcframework"
+      ]
+    },
+    {
+      "name": "LibDovi",
+      "version": "2.1.0",
+      "url": "https://codeload.github.com/superuser404notfound/LibDovi/tar.gz/refs/tags/2.1.0",
+      "sha256": "4e09d1981fe1e4f38bd5f7a7d8909a60c859096eb9cd83cff4fb3be3fe3f7e88",
+      "sources": [],
+      "frameworks": [
+        "Dovi.xcframework"
+      ]
+    },
+    {
+      "name": "LibTrueHD",
+      "version": "2.3.0",
+      "url": "https://codeload.github.com/superuser404notfound/LibTrueHD/tar.gz/refs/tags/2.3.0",
+      "sha256": "25120dad09062e77a4edf589e3b915a6a17d173b2071c607d2d9245e1d2ba924",
+      "sources": [],
+      "frameworks": [
+        "TrueHD.xcframework"
+      ]
+    },
+    {
+      "name": "LibDTSX",
+      "version": "1.0.1",
+      "url": "https://codeload.github.com/superuser404notfound/LibDTSX/tar.gz/refs/tags/1.0.1",
+      "sha256": "f0ebf1c6b689cf52e085d3f8c63f632e9ce862a7f0cd167dcc2348baced367f1",
+      "sources": [],
+      "frameworks": [
+        "DTSX.xcframework"
+      ]
+    }
+  ]
+}

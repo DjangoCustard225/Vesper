@@ -28,7 +28,8 @@ final class MPVSurfaceView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
         guard let window, bounds.width > 1, bounds.height > 1,
-              let metal = layer as? CAMetalLayer else { return }
+            let metal = layer as? CAMetalLayer
+        else { return }
         let scale = window.screen.scale
         metal.contentsScale = scale
         metal.drawableSize = CGSize(width: bounds.width * scale, height: bounds.height * scale)
@@ -52,8 +53,10 @@ final class MPVMetalLayer: CAMetalLayer {
     override var wantsExtendedDynamicRangeContent: Bool {
         get { super.wantsExtendedDynamicRangeContent }
         set {
-            if Thread.isMainThread { super.wantsExtendedDynamicRangeContent = newValue }
-            else { DispatchQueue.main.sync { super.wantsExtendedDynamicRangeContent = newValue } }
+            // MoltenVK expects this change to finish before the setter returns.
+            // Keep the synchronous bridge explicit; the layer is not a main-actor object.
+            let apply = { super.wantsExtendedDynamicRangeContent = newValue }
+            if Thread.isMainThread { apply() } else { DispatchQueue.main.sync(execute: apply) }
         }
     }
 }

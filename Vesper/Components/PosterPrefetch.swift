@@ -6,6 +6,7 @@ final class PosterPrefetchState {
     private var visibleKeys: Set<String> = []
     private var leadingIndex: Int?
     private var forward = true
+
     func visibility(_ visible: Bool, key: String, items: [MediaItem]) {
         if visible { visibleKeys.insert(key) } else { visibleKeys.remove(key) }
         let keys = Set(items.map(\.key))
@@ -15,10 +16,16 @@ final class PosterPrefetchState {
             leadingIndex = next
         }
     }
+
     func urls(_ items: [MediaItem]) -> [URL] {
         ArtworkPrefetchWindow.urls(items: items, visibleKeys: visibleKeys, forward: forward)
     }
-    func reset() { visibleKeys = []; leadingIndex = nil; forward = true }
+
+    func reset() {
+        visibleKeys = []
+        leadingIndex = nil
+        forward = true
+    }
 }
 
 struct PosterShelf: View {
@@ -26,12 +33,16 @@ struct PosterShelf: View {
     var horizontalPadding: CGFloat = 20
     @State private var prefetch = PosterPrefetchState()
     @State private var visible = false
+
     private var urls: [URL] { visible ? prefetch.urls(items) : [] }
+
     var body: some View {
         ScrollView(.horizontal) {
             LazyHStack(alignment: .top, spacing: Design.posterSpacing) {
                 ForEach(items, id: \.key) { item in
-                    NavigationLink { DetailView(item: item) } label: {
+                    NavigationLink {
+                        DetailView(item: item)
+                    } label: {
                         PosterCard(item: item, width: Design.posterWidth)
                     }.buttonStyle(.plain)
                         .modifier(MediaContextMenu(item: item))
@@ -43,6 +54,9 @@ struct PosterShelf: View {
         }.scrollIndicators(.hidden).appScrollEdges()
             .onScrollVisibilityChange(threshold: 0.01) { visible = $0 }
             .prefetchArtwork(urls)
-            .onDisappear { visible = false; prefetch.reset() }
+            .onDisappear {
+                visible = false
+                prefetch.reset()
+            }
     }
 }

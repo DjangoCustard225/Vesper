@@ -8,6 +8,7 @@ struct EpisodeCard: View {
     let showDescription: () -> Void
     @ScaledMetric(relativeTo: .body) private var cardWidth = 240.0
     @ScaledMetric(relativeTo: .body) private var cardHeight = 248.0
+
     private var playbackLabel: String {
         if let runtime = episode.runtimeMinutes { return "\(runtime)m" }
         return "Play"
@@ -19,7 +20,8 @@ struct EpisodeCard: View {
                 ZStack(alignment: .bottomLeading) {
                     Artwork(url: episode.thumbnail ?? media.background ?? media.poster)
                         .frame(width: cardWidth, height: cardHeight)
-                    LinearGradient(colors: [.clear, .black.opacity(0.35)], startPoint: .top, endPoint: .bottom)
+                    LinearGradient(
+                        colors: [.clear, .black.opacity(0.35)], startPoint: .top, endPoint: .bottom)
                     VStack(alignment: .leading, spacing: 4) {
                         Text(episode.episode.map { "EPISODE \($0)" } ?? "EPISODE")
                             .font(.caption.weight(.bold)).foregroundStyle(.white.opacity(0.7))
@@ -29,10 +31,16 @@ struct EpisodeCard: View {
                             .lineLimit(3, reservesSpace: true)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 40)
+                    .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 58)
                     .background {
                         Rectangle().fill(.ultraThinMaterial)
-                            .mask(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .black, location: 0.25)], startPoint: .top, endPoint: .bottom))
+                            .mask(
+                                LinearGradient(
+                                    stops: [
+                                        .init(color: .clear, location: 0),
+                                        .init(color: .black, location: 0.25),
+                                    ], startPoint: .top, endPoint: .bottom)
+                            )
                             .padding(.top, -24)
                     }
                 }.frame(width: cardWidth, height: cardHeight).contentShape(Rectangle())
@@ -44,7 +52,11 @@ struct EpisodeCard: View {
                     HStack(spacing: 5) {
                         Image(systemName: "play.fill").font(.caption)
                         Text(playbackLabel).font(.subheadline.weight(.medium))
-                    }.contentShape(Rectangle())
+                    }.frame(
+                        minWidth: Design.minimumHitTarget, minHeight: Design.minimumHitTarget,
+                        alignment: .leading
+                    )
+                    .contentShape(Rectangle())
                 }.buttonStyle(.plain).accessibilityLabel("Play \(episode.displayTitle), \(playbackLabel)")
                 Spacer(minLength: 4)
                 Menu {
@@ -54,12 +66,16 @@ struct EpisodeCard: View {
                     }
                 } label: {
                     Image(systemName: "ellipsis").font(.body.weight(.bold))
-                        .frame(width: 30, height: 26).contentShape(Rectangle())
+                        .frame(width: Design.minimumHitTarget, height: Design.minimumHitTarget).contentShape(
+                            Rectangle())
                 }.buttonStyle(.plain).accessibilityLabel("Options for \(episode.displayTitle)")
             }.foregroundStyle(.white.opacity(0.7)).padding(.horizontal, 12).padding(.bottom, 8)
         }
         .frame(width: cardWidth, height: cardHeight)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay { RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.16), lineWidth: 0.5) }
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(
+                .white.opacity(0.16), lineWidth: 0.5)
+        }
     }
 }
