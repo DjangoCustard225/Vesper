@@ -30,7 +30,7 @@ jobs:
             app: VesperGo
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.app/Contents/Developer
-      XDG_CACHE_HOME: ${{ runner.temp }}/vesper-cache
+      XDG_CACHE_HOME: /tmp/vesper-cache
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
