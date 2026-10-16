@@ -21,7 +21,15 @@
       "layers": [
         {
           "name": "Progress",
-          "image-name": "Progress.svg"
+          "image-name": "Progress.svg",
+          "fill-specializations": [
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:1.00000,0.98039,0.92157,1.00000"
+              }
+            }
+          ]
         },
         {
           "name": "Track",
@@ -29,7 +37,15 @@
         },
         {
           "name": "Play",
-          "image-name": "Play.svg"
+          "image-name": "Play.svg",
+          "fill-specializations": [
+            {
+              "appearance": "dark",
+              "value": {
+                "solid": "srgb:1.00000,0.98039,0.92157,1.00000"
+              }
+            }
+          ]
         }
       ],
       "specular": false,

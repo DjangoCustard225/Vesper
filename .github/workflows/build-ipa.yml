@@ -52,7 +52,18 @@ jobs:
         if: matrix.edition == 'vesper'
         run: bash Scripts/RenderIconPreviews.sh
       - name: Verify and build unsigned IPA
-        run: bash Scripts/Verify.sh '${{ matrix.edition }}'
+        shell: bash
+        run: |
+          mkdir -p xtool
+          bash Scripts/Verify.sh '${{ matrix.edition }}' 2>&1 | tee xtool/build.log
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ matrix.app }}-build-log
+          path: xtool/build.log
+          if-no-files-found: warn
+          retention-days: 7
       - name: Upload IPA and checksum
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
