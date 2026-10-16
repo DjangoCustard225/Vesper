@@ -1,0 +1,43 @@
+{
+  "fill": {
+    "linear-gradient": [
+      "srgb:0.16471,0.57647,0.92549,1.00000",
+      "srgb:0.07059,0.35686,0.75294,1.00000"
+    ]
+  },
+  "fill-specializations": [
+    { "appearance": "dark", "value": "system-dark" },
+    { "appearance": "tinted", "value": "automatic" }
+  ],
+  "groups": [
+    {
+      "name": "Backing card",
+      "layers": [
+        { "name": "Tilted blue card", "image-name": "Backing.svg" }
+      ],
+      "specular": true,
+      "shadow": { "kind": "neutral", "opacity": 0.08 },
+      "translucency": { "enabled": true, "value": 0.2 }
+    },
+    {
+      "name": "Playback card",
+      "layers": [
+        { "name": "Cream card", "image-name": "Card.svg" }
+      ],
+      "specular": true,
+      "shadow": { "kind": "neutral", "opacity": 0.12 },
+      "translucency": { "enabled": true, "value": 0.08 }
+    },
+    {
+      "name": "Playback controls",
+      "layers": [
+        { "name": "Play", "image-name": "Play.svg" },
+        { "name": "Track", "image-name": "Track.svg" },
+        { "name": "Progress", "image-name": "Progress.svg" }
+      ],
+      "specular": false,
+      "shadow": { "kind": "neutral", "opacity": 0 }
+    }
+  ],
+  "supported-platforms": { "squares": "shared" }
+}

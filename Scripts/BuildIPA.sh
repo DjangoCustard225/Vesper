@@ -13,6 +13,9 @@ case "$task_edition" in
     go) ;;
     *) printf '%s\n' 'Usage: Scripts/BuildIPA.sh [vesper|go]' >&2; exit 2 ;;
 esac
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    exec bash Scripts/BuildXcodeIPA.sh "$task_edition"
+fi
 if [[ "${VESPER_NATIVE_BUILD:-0}" == "1" ]]; then
     task_root="$PWD"
     task_adapter=$(mktemp -d /tmp/vesper-build-adapter.XXXXXX)
@@ -31,4 +34,8 @@ xtool dev build -c release --triple arm64-apple-ios27.0 --ipa
 if [[ "$task_edition" == "go" ]]; then
     mkdir -p ../xtool
     mv xtool/VesperGo.ipa ../xtool/VesperGo.ipa
+    cd ..
+    "$task_python" -B Scripts/OptimizeIPA.py xtool/VesperGo.ipa --go
+else
+    "$task_python" -B Scripts/OptimizeIPA.py xtool/Vesper.ipa
 fi

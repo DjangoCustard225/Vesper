@@ -17,7 +17,7 @@ let package = Package(
             name: "VesperGo", dependencies: [.product(name: "VesperCore", package: "Core")],
             path: "Sources",
             exclude: configuration.excludedSources + [
-                "Info.plist", "PrivacyInfo.xcprivacy", "Assets.xcassets", "Resources",
+                "Info.plist", "PrivacyInfo.xcprivacy", "Assets.xcassets", "Resources", "VesperIcon.icon",
             ],
             swiftSettings: [.define("VESPER_GO"), .enableUpcomingFeature("StrictConcurrency")])
     ],

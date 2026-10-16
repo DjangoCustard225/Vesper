@@ -14,7 +14,13 @@
 !/Tests/
 !/Vesper.xcodeproj/
 !/VesperGo.xcodeproj/
+!/.github/
 !/docs/
+
+/.github/*
+!/.github/workflows/
+/.github/workflows/*
+!/.github/workflows/build-ipa.yml
 
 # Shared app source and required resources.
 /Vesper/*
@@ -23,6 +29,7 @@
 !/Vesper/Features/
 !/Vesper/Assets.xcassets/
 !/Vesper/Resources/
+!/Vesper/VesperIcon.icon/
 !/Vesper/Info.plist
 !/Vesper/PrivacyInfo.xcprivacy
 /Core/*
@@ -66,6 +73,9 @@
 
 /Scripts/*
 !/Scripts/BuildIPA.sh
+!/Scripts/OptimizeIPA.py
+!/Scripts/BuildXcodeIPA.sh
+!/Scripts/RenderIconPreviews.sh
 !/Scripts/GenerateXcodeProject.swift
 !/Scripts/NativeSwiftPM.py
 !/Scripts/PrepareMPVKit.py

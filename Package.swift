@@ -16,7 +16,10 @@ let package = Package(
                 .product(name: "MPVKit", package: "MPVKit"),
                 .product(name: "AetherEngine", package: "AetherEngine"),
             ],
-            path: "Vesper", exclude: ["Info.plist", "PrivacyInfo.xcprivacy", "Assets.xcassets", "Resources"],
+            path: "Vesper",
+            exclude: [
+                "Info.plist", "PrivacyInfo.xcprivacy", "Assets.xcassets", "Resources", "VesperIcon.icon",
+            ],
             swiftSettings: [.enableUpcomingFeature("StrictConcurrency")])
     ],
     swiftLanguageModes: [.v5]

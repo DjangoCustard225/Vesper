@@ -48,7 +48,7 @@ for name in ["Vesper", "VesperGo"] {
             .sorted().compactMap { groupIDs[$0] }
         var children = subgroups + (sourceRefs[directory] ?? [])
         if directory == "Vesper" {
-            children += [id(300), id(302), id(304)] + (isGo ? [] : [id(307), id(309)])
+            children += [id(300), id(302), id(304), id(311)] + (isGo ? [] : [id(307), id(309)])
         }
         objects.append(
             "\(groupIDs[directory]!) = {isa = PBXGroup; children = (\(children.joined(separator: ","))); name = \"\((directory as NSString).lastPathComponent)\"; sourceTree = \"<group>\"; };"
@@ -66,6 +66,8 @@ for name in ["Vesper", "VesperGo"] {
         "\(id(308)) = {isa = PBXBuildFile; fileRef = \(id(307)); };",
         "\(id(309)) = {isa = PBXFileReference; lastKnownFileType = text; path = Vesper/Resources/AetherEngine-LICENSE.txt; sourceTree = SOURCE_ROOT; };",
         "\(id(310)) = {isa = PBXBuildFile; fileRef = \(id(309)); };",
+        "\(id(311)) = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = Vesper/VesperIcon.icon; sourceTree = SOURCE_ROOT; };",
+        "\(id(312)) = {isa = PBXBuildFile; fileRef = \(id(311)); };",
         "\(id(402)) = {isa = XCLocalSwiftPackageReference; relativePath = Dependencies/MPVKit; };",
         "\(id(403)) = {isa = XCSwiftPackageProductDependency; package = \(id(402)); productName = MPVKit; };",
         "\(id(404)) = {isa = PBXBuildFile; productRef = \(id(403)); };",
@@ -80,7 +82,7 @@ for name in ["Vesper", "VesperGo"] {
         "\(id(4)) = {isa = PBXNativeTarget; buildConfigurationList = \(id(11)); buildPhases = (\(id(5)), \(id(6)), \(id(7))); buildRules = (); dependencies = (); name = \(name); packageProductDependencies = (\(isGo ? id(401) : [id(401), id(403), id(406)].joined(separator: ","))); productName = \(name); productReference = \(id(305)); productType = \"com.apple.product-type.application\"; };",
         "\(id(5)) = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (\(sourceBuilds.joined(separator: ","))); runOnlyForDeploymentPostprocessing = 0; };",
         "\(id(6)) = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (\(isGo ? id(306) : [id(306), id(404), id(407)].joined(separator: ","))); runOnlyForDeploymentPostprocessing = 0; };",
-        "\(id(7)) = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (\((isGo ? [id(301), id(303)] : [id(301), id(303), id(308), id(310)]).joined(separator: ","))); runOnlyForDeploymentPostprocessing = 0; };",
+        "\(id(7)) = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (\((isGo ? [id(301), id(303), id(312)] : [id(301), id(303), id(308), id(310), id(312)]).joined(separator: ","))); runOnlyForDeploymentPostprocessing = 0; };",
         "\(id(10)) = {isa = XCConfigurationList; buildConfigurations = (\(id(12)), \(id(13))); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };",
         "\(id(11)) = {isa = XCConfigurationList; buildConfigurations = (\(id(14)), \(id(15))); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };",
     ]
@@ -96,7 +98,7 @@ for name in ["Vesper", "VesperGo"] {
         let projectSettings =
             "CLANG_ENABLE_MODULES = YES; SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 27.0; SWIFT_VERSION = 5.0; SWIFT_STRICT_CONCURRENCY = complete; SWIFT_OPTIMIZATION_LEVEL = \"\(index == 0 ? "-Onone" : "-O")\"; DEBUG_INFORMATION_FORMAT = \"\(index == 0 ? "dwarf" : "dwarf-with-dsym")\"; \(conditionSetting)"
         let appSettings =
-            "ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = \(buildNumber); GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = \(infoPath); MARKETING_VERSION = \(appVersion); PRODUCT_BUNDLE_IDENTIFIER = \(bundleID); PRODUCT_NAME = \"$(TARGET_NAME)\"; TARGETED_DEVICE_FAMILY = \"1,2\"; LD_RUNPATH_SEARCH_PATHS = \"$(inherited) @executable_path/Frameworks\"; INFOPLIST_KEY_UILaunchScreen_Generation = YES; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES; INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = \"UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\"; INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"
+            "ASSETCATALOG_COMPILER_APPICON_NAME = VesperIcon; ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = \(buildNumber); GENERATE_INFOPLIST_FILE = YES; INFOPLIST_FILE = \(infoPath); MARKETING_VERSION = \(appVersion); PRODUCT_BUNDLE_IDENTIFIER = \(bundleID); PRODUCT_NAME = \"$(TARGET_NAME)\"; TARGETED_DEVICE_FAMILY = \"1,2\"; LD_RUNPATH_SEARCH_PATHS = \"$(inherited) @executable_path/Frameworks\"; INFOPLIST_KEY_UILaunchScreen_Generation = YES; INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES; INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = \"UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\"; INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = \"UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight\";"
         objects.append(
             "\(id(12 + index)) = {isa = XCBuildConfiguration; buildSettings = {\(projectSettings)}; name = \(configurationName); };"
         )

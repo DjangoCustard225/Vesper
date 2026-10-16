@@ -62,7 +62,7 @@ def arm64_commands(data):
     return commands
 
 
-def verify(ipa, root, go=False):
+def verify(ipa, root, go=False, *, unstripped=False, write_checksum=True, native_icon=False):
     configuration_root = root / "Go" if go else root
     expected = plistlib.loads((root / "Go/Info.plist" if go else root / "Vesper/Info.plist").read_bytes())
     bundle_id = re.search(r"^bundleID:\s*(\S+)\s*$", (configuration_root / "xtool.yml").read_text(), re.M).group(1)
@@ -105,9 +105,11 @@ def verify(ipa, root, go=False):
                     raise ValueError(f"Unexpected Vesper Go dependency: {dependency}")
         else:
             mpv = arm64_commands(archive.read(prefix + "Frameworks/Libmpv.framework/Libmpv"))
-            if not required <= mpv.get("symbols", set()):
+            if not {name for name in required if name.startswith("_mpv_")} <= mpv.get("exports", set()):
+                raise ValueError("The isolated mpv client API is missing")
+            if unstripped and not required <= mpv.get("symbols", set()):
                 raise ValueError("The isolated mpv engine or its Metal renderer is missing")
-            if not {"_avformat_open_input", "_avcodec_send_packet"} <= mpv.get("symbols", set()):
+            if unstripped and not {"_avformat_open_input", "_avcodec_send_packet"} <= mpv.get("symbols", set()):
                 raise ValueError("mpv is missing its private FFmpeg implementation")
             # lld retains these common AVS3 tables as exports even with an API export list.
             common_tables = {"_g_tbl_itrans", "_g_tbl_itrans_coeffs", "_uavs3d_funs_handle"}
@@ -116,7 +118,7 @@ def verify(ipa, root, go=False):
             if any("VLCKit" in name for name in names):
                 raise ValueError("A VLC framework or resource is unexpectedly packaged")
             symbols = commands.get("symbols", set())
-            if not all(any(part in symbol for symbol in symbols)
+            if unstripped and not all(any(part in symbol for symbol in symbols)
                        for part in ("12AetherEngine", "AetherPlaybackController", "MPVPlaybackController")):
                 raise ValueError("One of the built-in player engines or adapters is missing")
             binaries = [(actual["CFBundleExecutable"], commands)]
@@ -179,9 +181,16 @@ def verify(ipa, root, go=False):
         if not icons or not any(name.startswith(prefix + icon) and name.endswith(".png") for icon in icons for name in names):
             if prefix + "Assets.car" not in names:
                 raise ValueError("Packaged app icon is missing")
+        if native_icon:
+            primary = actual.get("CFBundleIcons", {}).get("CFBundlePrimaryIcon", {})
+            if primary.get("CFBundleIconName") != "VesperIcon" or prefix + "Assets.car" not in names:
+                raise ValueError("The native clear/tinted app icon was not compiled or selected")
         privacy = plistlib.loads(archive.read(prefix + "PrivacyInfo.xcprivacy"))
         if privacy.get("NSPrivacyTracking") is not False:
             raise ValueError("Packaged privacy manifest must declare tracking disabled")
+    print(f"Verified {actual['CFBundleDisplayName']} {actual['CFBundleShortVersionString']} ({actual['CFBundleVersion']}), {bundle_id}, iOS {minimum_os}+")
+    if not write_checksum:
+        return
     digest = hashlib.sha256()
     with ipa.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
@@ -190,7 +199,6 @@ def verify(ipa, root, go=False):
     temporary = checksum.with_suffix(".tmp")
     temporary.write_text(f"{digest.hexdigest()}  {ipa.name}\n")
     temporary.replace(checksum)
-    print(f"Verified {actual['CFBundleDisplayName']} {actual['CFBundleShortVersionString']} ({actual['CFBundleVersion']}), {bundle_id}, iOS {minimum_os}+")
     print(f"SHA256: {digest.hexdigest()}")
 
 
@@ -199,8 +207,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("ipa", nargs="?")
     parser.add_argument("--go", action="store_true")
+    parser.add_argument("--unstripped", action="store_true", help="Also audit private engine and adapter symbols before release stripping")
+    parser.add_argument("--native-icon", action="store_true", help="Require the compiled Icon Composer app icon")
     arguments = parser.parse_args()
     try:
-        verify(pathlib.Path(arguments.ipa) if arguments.ipa else project / ("xtool/VesperGo.ipa" if arguments.go else "xtool/Vesper.ipa"), project, go=arguments.go)
+        verify(pathlib.Path(arguments.ipa) if arguments.ipa else project / ("xtool/VesperGo.ipa" if arguments.go else "xtool/Vesper.ipa"), project, go=arguments.go, unstripped=arguments.unstripped, native_icon=arguments.native_icon)
     except (OSError, ValueError, KeyError, zipfile.BadZipFile) as error:
         sys.exit(f"Verification failed: {error}")
