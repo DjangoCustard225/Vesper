@@ -6,38 +6,76 @@
     ]
   },
   "fill-specializations": [
-    { "appearance": "dark", "value": "system-dark" },
-    { "appearance": "tinted", "value": "automatic" }
+    {
+      "appearance": "dark",
+      "value": "system-dark"
+    },
+    {
+      "appearance": "tinted",
+      "value": "automatic"
+    }
   ],
   "groups": [
     {
-      "name": "Backing card",
+      "name": "Playback controls",
       "layers": [
-        { "name": "Tilted blue card", "image-name": "Backing.svg" }
+        {
+          "name": "Progress",
+          "image-name": "Progress.svg"
+        },
+        {
+          "name": "Track",
+          "image-name": "Track.svg"
+        },
+        {
+          "name": "Play",
+          "image-name": "Play.svg"
+        }
       ],
-      "specular": true,
-      "shadow": { "kind": "neutral", "opacity": 0.08 },
-      "translucency": { "enabled": true, "value": 0.2 }
+      "specular": false,
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0
+      }
     },
     {
       "name": "Playback card",
       "layers": [
-        { "name": "Cream card", "image-name": "Card.svg" }
+        {
+          "name": "Cream card",
+          "image-name": "Card.svg"
+        }
       ],
       "specular": true,
-      "shadow": { "kind": "neutral", "opacity": 0.12 },
-      "translucency": { "enabled": true, "value": 0.08 }
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.12
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.08
+      }
     },
     {
-      "name": "Playback controls",
+      "name": "Backing card",
       "layers": [
-        { "name": "Play", "image-name": "Play.svg" },
-        { "name": "Track", "image-name": "Track.svg" },
-        { "name": "Progress", "image-name": "Progress.svg" }
+        {
+          "name": "Tilted blue card",
+          "image-name": "Backing.svg"
+        }
       ],
-      "specular": false,
-      "shadow": { "kind": "neutral", "opacity": 0 }
+      "specular": true,
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.08
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.2
+      }
     }
   ],
-  "supported-platforms": { "squares": "shared" }
+  "supported-platforms": {
+    "squares": "shared"
+  }
 }
