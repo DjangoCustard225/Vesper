@@ -40,16 +40,20 @@ final class BoundedResponseTests: XCTestCase {
 
     func testUnknownLengthStopsReceivingWhenChunksExceedLimit() async throws {
         let delivered = LockedRequestCounter(), calls = LockedRequestCounter()
+        // CFNetwork coalesces tiny URLProtocol writes; use real transfer-sized chunks
+        // so the delegate can reject the body before the fixture finishes sending it.
+        let chunk = Data(repeating: 1, count: 64 * 1024)
         fixture.respond = { _ in
             calls.increment()
             var response = FixtureResponse()
-            response.chunks = Array(repeating: Data([1, 2]), count: 100)
+            response.chunks = Array(repeating: chunk, count: 100)
             response.chunkInterval = 0.005
             response.onChunk = { delivered.increment() }
             return response
         }
         do {
-            _ = try await transport().data(for: URLRequest(url: url), operation: .artwork, byteLimit: 4)
+            _ = try await transport().data(
+                for: URLRequest(url: url), operation: .artwork, byteLimit: chunk.count * 2)
             XCTFail("Oversized response was accepted")
         } catch { XCTAssertEqual((error as? URLError)?.code, .dataLengthExceedsMaximum) }
         XCTAssertEqual(calls.value, 1)
