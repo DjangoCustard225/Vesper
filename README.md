@@ -18,11 +18,11 @@
   <a href="https://github.com/DjangoCustard225/Vesper/releases/latest/download/VesperGo.ipa">Download Vesper Go</a>
 </p>
 
-Vesper brings movie and TV discovery, Stremio add-ons, and playback together on iPhone and iPad. Find something to watch with TMDB, save it, and pick up where you left off.
+Vesper brings movie and TV discovery, Stremio add-ons and playback together on iPhone and iPad. Find something to watch, save titles for later and pick up where you left off.
 
 ## Vesper or Vesper Go?
 
-**Vesper** includes mpv and AVPlayer, plus support for Infuse, Outplayer, and VLC. **Vesper Go** has no built-in player and uses an external one. Both apps install separately.
+**Vesper** includes mpv and AVPlayer. You can also use Infuse, Outplayer or VLC. **Vesper Go** plays only through the external player you select. Both apps install separately.
 
 ## Screenshots
 
@@ -38,14 +38,14 @@ Vesper brings movie and TV discovery, Stremio add-ons, and playback together on 
 
 ## What you can do
 
-- Find movies and shows, explore cast and crew, and browse related titles.
-- Save titles, back up your library, and continue watching later.
+- Find movies and shows, explore cast and crew and browse related titles.
+- Save titles, back up your library and continue watching later.
 - Connect Trakt to sync watched history and built-in playback.
 
 ## Get started
 
 1. Download the [latest release](https://github.com/DjangoCustard225/Vesper/releases/latest) for **iOS 27 or later**. The unsigned IPAs need signing before installation.
-2. Add a TMDB API key or Read Access Token in **Settings → TMDB**. [Get TMDB credentials](https://www.themoviedb.org/settings/api).
+2. Add your TMDB API key in **Settings → TMDB**. [Get an API key](https://www.themoviedb.org/settings/api).
 3. Add a provider in **Settings → Add-ons** with its manifest URL or `stremio://` link.
 4. Open a title and tap **Play** to choose a source. Set your player in **Settings → Video Player**.
 
@@ -59,4 +59,4 @@ Your library and resume points stay on your device. Credentials and add-on setti
 
 ## Credits
 
-Vesper is independent of Stremio. It uses TMDB data, but TMDB does not endorse the app. Built-in playback uses [MPVKit](https://github.com/mpvkit/MPVKit) or [AetherEngine](https://github.com/superuser404notfound/AetherEngine). Third-party notices are in **Settings → About → Credits**.
+Vesper is independent of Stremio. Built-in playback uses [MPVKit](https://github.com/mpvkit/MPVKit) or [AetherEngine](https://github.com/superuser404notfound/AetherEngine). Third-party notices are in **Settings → About → Credits**.
