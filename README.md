@@ -24,7 +24,7 @@ Vesper brings movie and TV discovery, Stremio add-ons and playback together on i
 
 **Vesper** includes mpv and AVPlayer. You can also use Infuse, Outplayer or VLC. **Vesper Go** plays only through the external player you select. Both apps install separately.
 
-For Dolby Vision and HDR playback, choose AVPlayer when the stream format supports it.
+For Dolby Vision and HDR playback, choose AVPlayer.
 
 ## Screenshots
 
