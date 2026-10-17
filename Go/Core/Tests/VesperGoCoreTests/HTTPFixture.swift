@@ -1,0 +1,1 @@
+../../../../Core/Tests/VesperCoreTests/HTTPFixture.swift

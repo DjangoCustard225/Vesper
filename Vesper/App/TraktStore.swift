@@ -15,8 +15,13 @@ final class TraktStore {
         didSet { UserDefaults.standard.set(syncHistory, forKey: "traktSyncHistory") }
     }
     #if !VESPER_GO
+    private(set) var scrobbleError: String?
+    @ObservationIgnored private let scrobbleDelivery = TraktScrobbleDelivery()
     var scrobbling: Bool {
-        didSet { UserDefaults.standard.set(scrobbling, forKey: "traktScrobbling") }
+        didSet {
+            UserDefaults.standard.set(scrobbling, forKey: "traktScrobbling")
+            if !scrobbling { scrobbleDelivery.cancel(); scrobbleError = nil }
+        }
     }
     #endif
     @ObservationIgnored private let client: TraktClient
@@ -26,12 +31,13 @@ final class TraktStore {
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var authorizationTask: Task<Void, Never>?
     @ObservationIgnored private var syncTask: (id: UUID, task: Task<Void, Never>)?
-    @ObservationIgnored private var eventTail: Task<Void, Never>?
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var active = true
     @ObservationIgnored private var nextAttempt = Date.distantPast
     @ObservationIgnored private var retryDelay: TimeInterval = 15
     @ObservationIgnored private var rateLimitedUntil = Date.distantPast
+    @ObservationIgnored private var watchedProgressRefreshes: [String: Date] = [:]
+    @ObservationIgnored private var watchedProgressInFlight = Set<String>()
 
     var connectionRevision: UUID { generation }
 
@@ -65,7 +71,10 @@ final class TraktStore {
     func startSignIn(history: WatchProgressController) {
         guard !isAuthorizing, writable else { return }
         syncTask?.task.cancel()
-        eventTail?.cancel()
+        #if !VESPER_GO
+        scrobbleDelivery.cancel()
+        scrobbleError = nil
+        #endif
         retryTask?.cancel()
         generation = UUID()
         error = nil
@@ -113,6 +122,43 @@ final class TraktStore {
         await synchronize(history: history)
     }
 
+    func refreshWatchedEpisodes(for media: MediaItem, history: WatchProgressController) async {
+        guard isConnected, syncHistory, !needsReconnect, writable, Date() >= rateLimitedUntil,
+            media.type == "series"
+        else { return }
+        let revision = generation
+        do {
+            try await establishAccount(history: history, revision: revision)
+            guard generation == revision, isConnected, syncHistory else { return }
+            let identity = MediaIdentity.aliases(media).sorted().first ?? media.key
+            let key = "\(state.account?.id ?? "unknown"): \(identity)"
+            if let lastRefresh = watchedProgressRefreshes[key],
+                Date().timeIntervalSince(lastRefresh) < 300
+            {
+                return
+            }
+            guard watchedProgressInFlight.insert(key).inserted else { return }
+            defer { watchedProgressInFlight.remove(key) }
+            let entries = try await client.watchedEpisodes(for: media)
+            guard generation == revision, isConnected, syncHistory else { return }
+            let applied = await history.replaceTraktHistory(
+                for: media, with: entries, pending: state.pending,
+                shouldApply: {
+                    self.generation == revision && self.isConnected && self.syncHistory
+                })
+            guard applied, generation == revision else { return }
+            if watchedProgressRefreshes.count >= 128 {
+                for (oldKey, _) in watchedProgressRefreshes.sorted(by: { $0.value < $1.value }).prefix(32) {
+                    watchedProgressRefreshes.removeValue(forKey: oldKey)
+                }
+            }
+            watchedProgressRefreshes[key] = Date()
+        } catch is CancellationError {
+        } catch {
+            // Keep saved episode status available when Trakt cannot be reached.
+        }
+    }
+
     func suspend() {
         active = false
         retryTask?.cancel()
@@ -122,7 +168,10 @@ final class TraktStore {
     func disconnect(history: WatchProgressController) async {
         cancelSignIn()
         syncTask?.task.cancel()
-        eventTail?.cancel()
+        #if !VESPER_GO
+        scrobbleDelivery.cancel()
+        scrobbleError = nil
+        #endif
         retryTask?.cancel()
         generation = UUID()
         do {
@@ -130,7 +179,6 @@ final class TraktStore {
             isConnected = false
             needsReconnect = false
             checkedAccount = false
-            eventTail = nil
             nextAttempt = .distantPast
             retryDelay = 15
             await history.detachTrakt()
@@ -169,7 +217,9 @@ final class TraktStore {
             }
             do {
                 // A queued stop must never overtake its corresponding start or pause event.
-                await eventTail?.value
+                #if !VESPER_GO
+                await scrobbleDelivery.flush()
+                #endif
                 try Task.checkCancellation()
                 try await establishAccount(history: history, revision: revision)
                 var changed = false
@@ -183,6 +233,9 @@ final class TraktStore {
                     try Task.checkCancellation()
                     guard generation == revision else { return }
                     try acknowledge(change.id)
+                    #if !VESPER_GO
+                    if change.action == .stopped { scrobbleError = nil }
+                    #endif
                     changed = true
                 }
                 if syncHistory {
@@ -263,7 +316,12 @@ final class TraktStore {
             needsReconnect = true
             return
         }
-        if failure as? TraktError == .accountLimit || failure as? TraktError == .unidentifiedTitle { return }
+        if failure as? TraktError == .accountLimit
+            || failure as? TraktError == .historyLimitReached
+            || failure as? TraktError == .unidentifiedTitle
+        {
+            return
+        }
         let delay: TimeInterval
         if case TraktError.rateLimited(let seconds) = failure {
             delay = seconds
@@ -289,36 +347,46 @@ final class TraktStore {
         let revision = generation
         let change = TraktHistoryChange(
             id: event.sessionID, media: media, videoID: videoID, action: .stopped, progress: event.progress)
-        if event.action == .stop, event.progress > 80 {
+        let completed = event.action == .stop && event.progress > 80
+        if completed {
             do {
                 var proposed = state
                 try proposed.enqueue(change)
                 try commit(proposed)
-            } catch { self.error = error.localizedDescription; return }
+            } catch { scrobbleError = error.localizedDescription; return }
         }
-        let previous = eventTail
-        eventTail = Task { [self] in
-            await previous?.value
-            guard generation == revision, isConnected, scrobbling, !needsReconnect, !Task.isCancelled else {
-                return
+        scrobbleDelivery.submit(event) { [weak self] in
+            guard let self, self.generation == revision, self.isConnected, self.scrobbling,
+                !self.needsReconnect
+            else { throw CancellationError() }
+            if Date() < self.rateLimitedUntil {
+                throw TraktError.rateLimited(self.rateLimitedUntil.timeIntervalSinceNow)
             }
-            guard Date() >= rateLimitedUntil else { return }
-            do {
-                try await establishAccount(history: history, revision: revision)
-                if event.action == .stop, event.progress > 80 {
-                    try await client.apply(change)
-                    guard generation == revision else { return }
-                    try acknowledge(change.id)
-                } else {
-                    try await client.scrobble(
-                        event.action, media: media, videoID: videoID, progress: event.progress)
-                }
-                if event.action == .stop {
-                    Task { await synchronize(history: history, force: true) }
-                }
-            } catch is CancellationError {} catch {
-                guard generation == revision else { return }
-                handle(error, history: history)
+            try await self.establishAccount(history: history, revision: revision)
+            if completed {
+                try await self.client.apply(change)
+                guard self.generation == revision else { throw CancellationError() }
+                try self.acknowledge(change.id)
+            } else {
+                try await self.client.scrobble(
+                    event.action, media: media, videoID: videoID, progress: event.progress)
+            }
+        } succeeded: { [weak self] in
+            guard let self, self.generation == revision else { return }
+            self.scrobbleError = nil
+            if event.action == .stop {
+                Task { await self.synchronize(history: history, force: true) }
+            }
+        } failed: { [weak self] failure in
+            guard let self, self.generation == revision else { return }
+            self.scrobbleError = failure.localizedDescription
+            if failure as? TraktError == .reconnect { self.needsReconnect = true }
+            if case TraktError.rateLimited(let seconds) = failure {
+                self.rateLimitedUntil = Date().addingTimeInterval(seconds)
+            }
+            // Durable completions are reconciled after transient delivery has finished retrying.
+            if completed {
+                Task { await self.synchronize(history: history, force: true) }
             }
         }
     }

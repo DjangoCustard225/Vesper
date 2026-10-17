@@ -2,6 +2,9 @@ import Foundation
 
 public enum NetworkOperation: String, Codable, Sendable {
     case tmdb, trakt, manifest, catalog, metadata, streams, artwork
+    #if !VESPER_GO
+    case traktScrobbleStart, traktScrobblePause, traktScrobbleStop
+    #endif
 
     public init(from decoder: Decoder) throws {
         let value = try decoder.singleValueContainer().decode(String.self)

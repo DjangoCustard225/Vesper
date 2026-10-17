@@ -212,6 +212,9 @@ struct DetailView: View {
         } else {
             await model.load(metadata: { await store.metadata(for: $0) })
         }
+        if !Task.isCancelled, media.type == "series" {
+            await store.refreshTraktWatchedEpisodes(for: media)
+        }
         startRequestedPlayback()
     }
 

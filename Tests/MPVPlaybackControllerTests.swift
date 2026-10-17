@@ -212,7 +212,112 @@
         passed += 1
         await testBackgroundProgress()
         passed += 1
+        await testScrobbleLifecycle()
+        passed += 1
+        await testScrobbleCompletionAndReplay()
+        passed += 1
+        await testScrobbleResumeAndLiveSuppression()
+        passed += 1
         print("Passed \(passed) mpv playback controller regression tests.")
+    }
+
+    @MainActor private static func testScrobbleLifecycle() async {
+        var events: [TraktScrobbleEvent] = []
+        let c = MPVPlaybackController(
+            url: URL(string: "https://example.invalid/video.mkv")!, onScrobble: { events.append($0) })
+        c.attach(to: CAMetalLayer())
+        let engine = MPVSession.latest!
+        var state = loaded()
+        state.loaded = false
+        engine.emit(state)
+        await settle()
+        state.loaded = true
+        state.buffering = true
+        engine.emit(state)
+        await settle()
+        expect(events.isEmpty, "Opening and buffering must not report watching")
+        state.buffering = false
+        state.elapsed = 4
+        engine.emit(state)
+        await settle()
+        expect(events.isEmpty, "Wait for five seconds before starting a scrobble")
+        state.elapsed = 6
+        engine.emit(state)
+        await settle()
+        state.elapsed = 30
+        engine.emit(state)
+        await settle()
+        c.pause()
+        c.togglePlayback()
+        state.buffering = true
+        state.elapsed = 35
+        engine.emit(state)
+        await settle()
+        c.stop()
+        c.stop()
+        expect(
+            events.map(\.action) == [.start, .pause, .start, .stop],
+            "Controller callbacks must report start/pause/resume/stop without a SwiftUI observer")
+        expect(events.last?.progress == 35, "Stop must report the latest engine position")
+    }
+
+    @MainActor private static func testScrobbleCompletionAndReplay() async {
+        var events: [TraktScrobbleEvent] = []
+        let c = MPVPlaybackController(
+            url: URL(string: "https://example.invalid/video.mkv")!, onScrobble: { events.append($0) })
+        c.attach(to: CAMetalLayer())
+        let engine = MPVSession.latest!
+        var state = loaded()
+        engine.emit(state)
+        await settle()
+        state.ended = true
+        state.elapsed = 98
+        engine.emit(state)
+        await settle()
+        expect(
+            events.last?.action == .stop && events.last?.progress == 100,
+            "Natural completion must report a full completed watch")
+        c.togglePlayback()
+        state.ended = false
+        state.elapsed = 6
+        engine.emit(state)
+        await settle()
+        expect(
+            events.last?.action == .start && events.last?.sessionID != events.first?.sessionID,
+            "Replay must start a new scrobble session")
+        engine.fail()
+        await settle()
+        c.stop()
+        expect(
+            events.map(\.action) == [.start, .stop, .start, .stop],
+            "Failure and close must finish a session only once")
+    }
+
+    @MainActor private static func testScrobbleResumeAndLiveSuppression() async {
+        var events: [TraktScrobbleEvent] = []
+        let c = MPVPlaybackController(
+            url: URL(string: "https://example.invalid/video.mkv")!, resumeSeconds: 40,
+            onScrobble: { events.append($0) })
+        c.attach(to: CAMetalLayer())
+        let engine = MPVSession.latest!
+        var state = loaded()
+        engine.emit(state)
+        await settle()
+        expect(events.isEmpty, "The opening resume seek must finish before reporting progress")
+        state.elapsed = 40
+        engine.emit(state)
+        await settle()
+        expect(events.first?.progress == 40, "Resume must report the saved playback position")
+        c.stop()
+        events = []
+        let live = MPVPlaybackController(
+            url: URL(string: "https://example.invalid/live")!, isLive: true,
+            onScrobble: { events.append($0) })
+        live.attach(to: CAMetalLayer())
+        MPVSession.latest.emit(loaded())
+        await settle()
+        live.stop()
+        expect(events.isEmpty, "Live playback must never scrobble")
     }
 
     @MainActor private static func testPeriodicProgress() async {

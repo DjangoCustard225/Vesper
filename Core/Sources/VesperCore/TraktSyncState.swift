@@ -13,12 +13,30 @@ public struct TraktSyncState: Codable, Sendable {
             throw TraktError.unidentifiedTitle
         }
         guard !pending.contains(where: { $0.id == change.id }) else { return }
+        #if !VESPER_GO
         if change.action != .stopped {
-            // A user's latest explicit watched/unwatched choice supersedes unsent choices for that title.
-            pending.removeAll { $0.action != .stopped && $0.media.isSameTitle(as: change.media) }
+            coalesce(change)
         }
+        #else
+        coalesce(change)
+        #endif
         guard pending.count < 500 else { throw TraktStateError.queueFull }
         pending.append(change)
+    }
+
+    private mutating func coalesce(_ change: TraktHistoryChange) {
+        pending.removeAll { previous in
+            #if !VESPER_GO
+            guard previous.action != .stopped else { return false }
+            #endif
+            guard previous.media.isSameTitle(as: change.media) else { return false }
+            guard change.media.type == "series", let videoID = change.videoID else { return true }
+            guard let previousID = previous.videoID else { return false }
+            if let episode = TraktClient.episode(videoID), let other = TraktClient.episode(previousID) {
+                return episode.season == other.season && episode.number == other.number
+            }
+            return videoID == previousID
+        }
     }
 }
 
@@ -88,8 +106,14 @@ public struct TraktStateRepository: Sendable {
             let value = try? JSONDecoder().decode(Envelope.self, from: data), value.version == 1,
             value.state.pending.count <= 500,
             value.state.pending.allSatisfy({
-                WatchProgress.supports($0.media) && !$0.media.id.isEmpty && $0.media.videos == nil
-                    && ($0.progress.map { $0.isFinite && (0...100).contains($0) } ?? true)
+                guard WatchProgress.supports($0.media), !$0.media.id.isEmpty, $0.media.videos == nil else {
+                    return false
+                }
+                #if !VESPER_GO
+                return $0.progress.map { $0.isFinite && (0...100).contains($0) } ?? true
+                #else
+                return true
+                #endif
             })
         else { throw TraktStateError.unreadable }
         return value.state

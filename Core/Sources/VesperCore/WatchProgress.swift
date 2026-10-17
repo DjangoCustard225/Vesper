@@ -9,6 +9,9 @@ public struct WatchRecord: Codable, Identifiable, Sendable {
     public let watched: Bool
     public let updatedAt: Date
     public var importedFromTrakt: Bool? = nil
+    #if !VESPER_GO
+    public var hiddenFromContinueWatching: Bool? = nil
+    #endif
 
     public var id: String { media.key + ":" + (videoID ?? "watched") }
 
@@ -23,6 +26,9 @@ public struct WatchRecord: Codable, Identifiable, Sendable {
     }
 
     public var season: Int? { episodeKey.flatMap { Int($0.split(separator: ":")[0]) } }
+
+    // A manual episode reset records an explicit choice without inventing playback timing.
+    var isManualUnwatched: Bool { media.type == "series" && videoID != nil && !watched && duration == 0 }
 
     #if !VESPER_GO
     public func playbackID(for item: MediaItem) -> String {
@@ -56,7 +62,9 @@ public struct WatchProgress: Codable, Sendable {
             hiddenAliases.formUnion(MediaIdentity.aliases(record.media))
         }
         for record in records.sorted(by: { $0.updatedAt > $1.updatedAt })
-        where record.videoID != nil && !record.watched {
+        where record.videoID != nil && !record.watched && record.duration > 0
+            && record.hiddenFromContinueWatching != true
+        {
             let aliases = MediaIdentity.aliases(record.media)
             guard aliases.isDisjoint(with: hiddenAliases) else { continue }
             hiddenAliases.formUnion(aliases)
@@ -64,12 +72,32 @@ public struct WatchProgress: Codable, Sendable {
         }
         return result
     }
+
+    public mutating func removeFromContinueWatching(for media: MediaItem) {
+        for index in records.indices
+        where records[index].media.isSameTitle(as: media) && !records[index].watched {
+            records[index].hiddenFromContinueWatching = true
+        }
+    }
     #endif
 
-    public func isWatched(_ media: MediaItem) -> Bool {
-        records.contains {
+    public func isWatched(_ media: MediaItem, episode: Episode? = nil) -> Bool {
+        if let episode,
+            let record = records.first(where: {
+                $0.matches(videoID: episode.id, media: media)
+                    || $0.matches(videoID: episode.watchHistoryID(for: media), media: media)
+            })
+        {
+            return record.watched
+        }
+        let wholeTitleWatched = records.contains {
             $0.media.isSameTitle(as: media) && $0.watched && (media.type == "movie" || $0.videoID == nil)
         }
+        if episode != nil { return wholeTitleWatched }
+        return wholeTitleWatched
+            && !records.contains {
+                $0.media.isSameTitle(as: media) && $0.isManualUnwatched
+            }
     }
 
     #if !VESPER_GO
@@ -82,8 +110,23 @@ public struct WatchProgress: Codable, Sendable {
     }
     #endif
 
-    public mutating func setWatched(_ watched: Bool, for media: MediaItem, now: Date = Date()) {
+    public mutating func setWatched(
+        _ watched: Bool, for media: MediaItem, episode: Episode? = nil, now: Date = Date()
+    ) {
         guard Self.supports(media) else { return }
+        if let episode {
+            guard media.type == "series", !episode.id.isEmpty else { return }
+            let videoID = episode.watchHistoryID(for: media)
+            records.removeAll {
+                $0.matches(videoID: episode.id, media: media) || $0.matches(videoID: videoID, media: media)
+            }
+            records.insert(
+                WatchRecord(
+                    media: Self.compact(media), videoID: videoID, subtitle: episode.displayTitle,
+                    elapsed: 0, duration: 0, watched: watched, updatedAt: now), at: 0)
+            trim()
+            return
+        }
         records.removeAll { $0.media.isSameTitle(as: media) }
         if watched {
             records.insert(
@@ -192,6 +235,21 @@ public struct WatchProgress: Codable, Sendable {
         trim()
     }
 
+    /// Replaces imported episode state for one title and retains imports for other titles.
+    public mutating func replaceTraktHistory(
+        for media: MediaItem, with entries: [TraktWatchedEntry], pending: [TraktHistoryChange] = []
+    ) {
+        guard media.type == "series" else { return }
+        let otherImports = records.filter {
+            $0.importedFromTrakt == true && !$0.media.isSameTitle(as: media)
+        }
+        mergeTrakt(entries.filter { $0.media.isSameTitle(as: media) }, pending: pending)
+        let existingIDs = Set(records.map(\.id))
+        records.append(contentsOf: otherImports.filter { !existingIDs.contains($0.id) })
+        records.sort { $0.updatedAt > $1.updatedAt }
+        trim()
+    }
+
     public mutating func detachTrakt() {
         for index in records.indices { records[index].importedFromTrakt = nil }
     }
@@ -215,7 +273,8 @@ public struct WatchProgress: Codable, Sendable {
                     && $0.media.videos == nil && $0.elapsed.isFinite && $0.duration.isFinite
                     && $0.elapsed >= 0 && $0.duration >= 0 && $0.elapsed <= $0.duration
                     && ($0.videoID == nil
-                        ? $0.watched : ($0.videoID != "" && ($0.duration > 0 || $0.watched)))
+                        ? $0.watched
+                        : ($0.videoID != "" && ($0.duration > 0 || $0.watched || $0.isManualUnwatched)))
             }
     }
 }

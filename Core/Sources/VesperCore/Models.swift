@@ -195,6 +195,11 @@ public struct Episode: Codable, Hashable, Identifiable, Sendable {
         guard let season, let episode else { return displayTitle }
         return "S\(season) · E\(episode)"
     }
+
+    public func watchHistoryID(for media: MediaItem) -> String {
+        guard let season, season >= 0, let episode, episode > 0 else { return id }
+        return "\(media.playbackID):\(season):\(episode)"
+    }
 }
 
 public struct StreamSource: Codable, Hashable, Sendable {

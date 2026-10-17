@@ -29,6 +29,43 @@ final class WatchProgressTests: XCTestCase {
         XCTAssertTrue(state.isWatched(movie))
     }
 
+    func testRemovingContinueWatchingPersistsWithoutChangingResumeOrWatchedState() throws {
+        let movie = media()
+        let other = media("tt456")
+        var state = WatchProgress()
+        state.record(media: movie, videoID: movie.id, subtitle: nil, elapsed: 300, duration: 1000)
+        state.record(media: other, videoID: other.id, subtitle: nil, elapsed: 100, duration: 1000)
+        state.removeFromContinueWatching(for: movie)
+        state = try JSONDecoder().decode(WatchProgress.self, from: JSONEncoder().encode(state))
+        XCTAssertEqual(state.continueWatching.map(\.media.id), [other.id])
+        XCTAssertEqual(state.resumePosition(for: movie, videoID: movie.id), 300)
+        XCTAssertFalse(state.isWatched(movie))
+        XCTAssertTrue(state.isValid)
+        state.mergeTrakt([])
+        XCTAssertEqual(state.continueWatching.map(\.media.id), [other.id])
+        state.record(media: movie, videoID: movie.id, subtitle: nil, elapsed: 350, duration: 1000)
+        XCTAssertEqual(state.continueWatching.first?.media.id, movie.id)
+    }
+
+    func testRemovingShowHidesEveryEpisodeAcrossAliasesUntilPlaybackResumes() {
+        let original = media("tmdb:tv:42", type: "series")
+        var enriched = media(type: "series")
+        enriched.tmdbID = 42
+        var state = WatchProgress()
+        for episode in 1...2 {
+            state.record(
+                media: original, videoID: "tmdb:tv:42:1:\(episode)", subtitle: nil,
+                elapsed: 100, duration: 1000)
+        }
+        state.removeFromContinueWatching(for: enriched)
+        XCTAssertTrue(state.continueWatching.isEmpty)
+        XCTAssertEqual(state.records.count, 2)
+        XCTAssertEqual(state.resumePosition(for: enriched, videoID: "tt123:1:1"), 100)
+        state.record(media: enriched, videoID: "tt123:1:2", subtitle: nil, elapsed: 150, duration: 1000)
+        XCTAssertEqual(state.continueWatching.count, 1)
+        XCTAssertEqual(state.continueWatching.first?.episodeKey, "1:2")
+    }
+
     func testEpisodesHaveIndependentProgressAndOnlyOneHomeEntryPerShow() {
         let show = media(type: "series")
         var state = WatchProgress()

@@ -8,7 +8,11 @@ let package = Package(
     targets: [
         .target(
             name: "VesperCore", path: "Sources/VesperCore",
-            exclude: ["PlaybackTimeline.swift", "PlaybackProgressReporter.swift"],
+            exclude: [
+                "PlaybackTimeline.swift", "PlaybackProgressReporter.swift", "TraktPlaybackReporter.swift",
+            ],
             swiftSettings: [.define("VESPER_GO"), .enableUpcomingFeature("StrictConcurrency")]),
-        .testTarget(name: "VesperGoCoreTests", dependencies: ["VesperCore"]),
+        .testTarget(
+            name: "VesperGoCoreTests", dependencies: ["VesperCore"],
+            swiftSettings: [.define("VESPER_GO")]),
     ], swiftLanguageModes: [.v5])

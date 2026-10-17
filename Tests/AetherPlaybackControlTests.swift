@@ -27,6 +27,10 @@ import Foundation
     var loaded = true
     var error: String?
     var isBuffering = false
+    var isLive = false
+    var scrobbleReporter = TraktPlaybackReporter()
+    var scrobbles: [TraktScrobbleEvent] = []
+    var onScrobble: (@MainActor (TraktScrobbleEvent) -> Void)?
     var hasEnded = false
     var isBoosting = false
     var wantsPlayback = true
@@ -42,7 +46,10 @@ import Foundation
     var loads: [Double] = []
     var onProgress: (@MainActor (PlaybackProgressUpdate) -> Void)?
 
-    init() { onProgress = { [weak self] in self?.updates.append($0) } }
+    init() {
+        onProgress = { [weak self] in self?.updates.append($0) }
+        onScrobble = { [weak self] in self?.scrobbles.append($0) }
+    }
 
     func activateAudio() throws { ownsAudioSession = true }
 
@@ -53,6 +60,7 @@ import Foundation
     func fail(_ message: String) { error = message }
 
     func checkpoint(force: Bool = false) { reportProgress(force: force) }
+    func checkpointScrobble(finishing: Bool = false) { reportScrobble(finishing: finishing) }
     // INSERT_ACTUAL_METHODS
 }
 
@@ -134,6 +142,43 @@ import Foundation
             controller.stopped = true
             controller.togglePlayback()
             check(controller.engine!.plays == 0, "A dismissed player must not resume")
+        }
+        do {
+            let controller = ControllerProbe()
+            controller.isPlaying = true
+            controller.checkpointScrobble()
+            controller.checkpointScrobble()
+            controller.pause()
+            controller.isPlaying = true
+            controller.checkpointScrobble()
+            controller.checkpointScrobble(finishing: true)
+            controller.stopped = true
+            controller.checkpointScrobble(finishing: true)
+            check(
+                controller.scrobbles.map(\.action) == [.start, .pause, .start, .stop],
+                "AVPlayer must report lifecycle transitions directly and finish once")
+        }
+        do {
+            let controller = ControllerProbe()
+            controller.isPlaying = true
+            controller.engine!.isSeeking = true
+            controller.checkpointScrobble()
+            controller.engine!.isSeeking = false
+            controller.isLive = true
+            controller.checkpointScrobble()
+            check(controller.scrobbles.isEmpty, "Live streams and pending seeks must not scrobble")
+        }
+        do {
+            let controller = ControllerProbe()
+            controller.isPlaying = true
+            controller.checkpointScrobble()
+            controller.engine!.isSeeking = true
+            controller.timeline = PlaybackTimeline(elapsed: 900, duration: 1000, isSeekable: true)
+            controller.checkpointScrobble(finishing: true)
+            check(
+                controller.scrobbles.map(\.action) == [.start, .stop]
+                    && controller.scrobbles.last?.progress == 12,
+                "Closing during a seek must stop watching at the last confirmed position")
         }
         print("Passed \(passed) Aether adapter transport regression checks.")
     }

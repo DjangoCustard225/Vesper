@@ -28,8 +28,12 @@ struct SettingsView: View {
                     HStack {
                         Label("Trakt", systemImage: "checkmark.circle")
                         Spacer()
-                        Text(store.trakt.isConnected ? "Connected" : "Not connected")
-                            .foregroundStyle(.secondary)
+                        Text(
+                            store.trakt.needsReconnect
+                                ? "Reconnect required"
+                                : (store.trakt.isConnected ? "Connected" : "Not connected")
+                        )
+                        .foregroundStyle(.secondary)
                     }
                 }
             }

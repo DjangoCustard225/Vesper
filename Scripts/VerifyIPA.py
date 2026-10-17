@@ -95,11 +95,14 @@ def verify(ipa, root, go=False, *, unstripped=False, write_checksum=True, native
                          "BuiltInPlayerView", "PlayerGesturePreferences", "PlaybackTimeline", "PlaybackRequest",
                          "PlaybackProgressReporter", "PlaybackProgressUpdate", "resumePosition",
                          "resumeRecord", "continueWatching", "removeRetiredPreferences", "showContinueWatching",
-                         "13WatchProgressV6record", "11VideoPlayerO7builtIn", "11VideoPlayerO6aether")
+                         "13WatchProgressV6record", "11VideoPlayerO7builtIn", "11VideoPlayerO6aether",
+                         "TraktPlaybackReporter", "TraktPlaybackSample", "TraktScrobble", "scrobbleBody")
             prefixes = ("_mpv_", "_av_", "_avcodec_", "_avformat_", "_avfilter_", "_dovi_",
                         "_OBJC_CLASS_$_AVPlayer", "_OBJC_CLASS_$_AVQueuePlayer", "_OBJC_CLASS_$_AVSampleBuffer")
             if any(any(part in symbol for part in forbidden) or symbol.startswith(prefixes) for symbol in symbols):
                 raise ValueError("Vesper Go unexpectedly contains built-in playback code")
+            if any(value in executable for value in (b"scrobble/", b"traktScrobbling", b"Scrobble playback")):
+                raise ValueError("Vesper Go unexpectedly contains Trakt scrobbling code")
             for dependency in commands.get("dylibs", []):
                 if not dependency.startswith(("/usr/lib/", "/System/Library/", "@rpath/libswift")):
                     raise ValueError(f"Unexpected Vesper Go dependency: {dependency}")

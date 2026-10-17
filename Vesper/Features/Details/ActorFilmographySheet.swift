@@ -36,7 +36,7 @@ struct ActorFilmographySheet: View {
                     titles
                     if let error = model.error { ErrorNotice(message: error) { retryID = UUID() } }
                 }.padding(20).frame(maxWidth: 1100).frame(maxWidth: .infinity)
-            }.appBackground().navigationTitle(name).navigationBarTitleDisplayMode(.inline)
+            }.appBackground().navigationTitle("").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItemGroup(placement: .topBarTrailing) {
                         sortMenu
@@ -50,13 +50,17 @@ struct ActorFilmographySheet: View {
     }
 
     private var portrait: some View {
-        CachedArtworkImage(url: portraitURL, fadesIn: true) { phase in
-            if let image = phase.image {
-                image.resizable().scaledToFill()
-            } else {
-                Circle().fill(Design.surface)
-            }
-        }.frame(width: 120, height: 120).clipShape(Circle()).accessibilityHidden(true)
+        VStack(spacing: 10) {
+            CachedArtworkImage(url: portraitURL, fadesIn: true) { phase in
+                if let image = phase.image {
+                    image.resizable().scaledToFill()
+                } else {
+                    Circle().fill(Design.surface)
+                }
+            }.frame(width: 120, height: 120).clipShape(Circle()).accessibilityHidden(true)
+            Text(name).font(.title2.bold()).multilineTextAlignment(.center)
+                .accessibilityAddTraits(.isHeader)
+        }
     }
 
     @ViewBuilder private var titles: some View {

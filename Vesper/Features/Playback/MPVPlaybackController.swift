@@ -20,6 +20,7 @@ final class MPVPlaybackController {
     private(set) var fillsScreen = false
 
     @ObservationIgnored private let url: URL
+    @ObservationIgnored private let isLive: Bool
     @ObservationIgnored private var session: MPVSession?
     @ObservationIgnored private var started = false
     @ObservationIgnored private var stopped = false
@@ -32,18 +33,23 @@ final class MPVPlaybackController {
     @ObservationIgnored private var requestedRate: Float = 1
     @ObservationIgnored private var pendingResume: Double?
     @ObservationIgnored private var awaitingResume: Double?
+    @ObservationIgnored private var scrobbleReporter = TraktPlaybackReporter()
+    @ObservationIgnored private let onScrobble: (@MainActor (TraktScrobbleEvent) -> Void)?
     @ObservationIgnored private let onProgress: (@MainActor (PlaybackProgressUpdate) -> Void)?
     @ObservationIgnored private let clock: () -> TimeInterval
     @ObservationIgnored private var progressReporter = PlaybackProgressReporter()
 
     init(
-        url: URL, resumeSeconds: Double = 0,
+        url: URL, resumeSeconds: Double = 0, isLive: Bool = false,
         onProgress: (@MainActor (PlaybackProgressUpdate) -> Void)? = nil,
+        onScrobble: (@MainActor (TraktScrobbleEvent) -> Void)? = nil,
         clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     ) {
         self.url = url
+        self.isLive = isLive
         self.pendingResume = resumeSeconds.isFinite && resumeSeconds > 0 ? resumeSeconds : nil
         self.onProgress = onProgress
+        self.onScrobble = onScrobble
         self.clock = clock
     }
 
@@ -114,6 +120,7 @@ final class MPVPlaybackController {
             applyPlaybackRate()
             session?.pause(false)
             isPlaying = true
+            reportScrobble()
             UIApplication.shared.isIdleTimerDisabled = true
         }
     }
@@ -126,6 +133,7 @@ final class MPVPlaybackController {
         isBoosting = false
         applyPlaybackRate()
         isPlaying = false
+        reportScrobble()
         UIApplication.shared.isIdleTimerDisabled = previousIdleTimer
     }
 
@@ -192,6 +200,7 @@ final class MPVPlaybackController {
     func stop() {
         guard !stopped else { return }
         reportProgress(force: true)
+        reportScrobble(finishing: true)
         stopped = true
         isBoosting = false
         wantsPlayback = false
@@ -281,6 +290,7 @@ final class MPVPlaybackController {
             awaitingResume = nil
         }
         reportProgress(force: state.ended)
+        reportScrobble()
     }
 
     private func reportProgress(force: Bool) {
@@ -295,8 +305,21 @@ final class MPVPlaybackController {
         }
     }
 
+    private func reportScrobble(finishing: Bool = false) {
+        guard let onScrobble, !stopped, !isLive else { return }
+        if loaded, pendingResume == nil, awaitingResume == nil, timeline.duration > 0 {
+            let sample = TraktPlaybackSample(
+                elapsed: timeline.elapsed, duration: timeline.duration,
+                playing: isPlaying, buffering: isBuffering, ended: hasEnded)
+            if let event = scrobbleReporter.update(sample) { onScrobble(event) }
+        }
+        // Closing during a seek still ends the previous valid watching session.
+        if finishing, let event = scrobbleReporter.finish() { onScrobble(event) }
+    }
+
     private func fail(_ message: String) {
         reportProgress(force: true)
+        reportScrobble(finishing: true)
         isBoosting = false
         wantsPlayback = false
         error = message

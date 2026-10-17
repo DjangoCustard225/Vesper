@@ -27,6 +27,8 @@ final class AetherPlaybackController {
     @ObservationIgnored private let url: URL
     @ObservationIgnored private let resumeSeconds: Double
     @ObservationIgnored private let isLive: Bool
+    @ObservationIgnored private var scrobbleReporter = TraktPlaybackReporter()
+    @ObservationIgnored private let onScrobble: (@MainActor (TraktScrobbleEvent) -> Void)?
     @ObservationIgnored private let onProgress: (@MainActor (PlaybackProgressUpdate) -> Void)?
     @ObservationIgnored private let clock: () -> TimeInterval
     @ObservationIgnored private var subscriptions = Set<AnyCancellable>()
@@ -47,12 +49,14 @@ final class AetherPlaybackController {
     init(
         url: URL, resumeSeconds: Double = 0, isLive: Bool = false,
         onProgress: (@MainActor (PlaybackProgressUpdate) -> Void)? = nil,
+        onScrobble: (@MainActor (TraktScrobbleEvent) -> Void)? = nil,
         clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     ) {
         self.url = url
         self.resumeSeconds = resumeSeconds.isFinite && resumeSeconds > 0 ? resumeSeconds : 0
         self.isLive = isLive
         self.onProgress = onProgress
+        self.onScrobble = onScrobble
         self.clock = clock
     }
 
@@ -153,6 +157,7 @@ final class AetherPlaybackController {
         engine?.pause()
         applyPlaybackRate()
         isPlaying = false
+        reportScrobble()
         UIApplication.shared.isIdleTimerDisabled = previousIdleTimer
     }
 
@@ -226,6 +231,7 @@ final class AetherPlaybackController {
     func stop() {
         guard !stopped else { return }
         reportProgress(force: true)
+        reportScrobble(finishing: true)
         stopped = true
         isBoosting = false
         wantsPlayback = false
@@ -283,6 +289,7 @@ final class AetherPlaybackController {
         }
         UIApplication.shared.isIdleTimerDisabled = isPlaying ? true : previousIdleTimer
         reportProgress(force: hasEnded)
+        reportScrobble()
     }
 
     private static func track(_ value: TrackInfo) -> PlaybackTrack? {
@@ -332,9 +339,22 @@ final class AetherPlaybackController {
         }
     }
 
+    private func reportScrobble(finishing: Bool = false) {
+        guard let onScrobble, !stopped, !isLive else { return }
+        if loaded, engine?.isSeeking != true, timeline.duration > 0 {
+            let sample = TraktPlaybackSample(
+                elapsed: timeline.elapsed, duration: timeline.duration,
+                playing: isPlaying, buffering: isBuffering, ended: hasEnded)
+            if let event = scrobbleReporter.update(sample) { onScrobble(event) }
+        }
+        // Closing during a seek still ends the previous valid watching session.
+        if finishing, let event = scrobbleReporter.finish() { onScrobble(event) }
+    }
+
     private func fail(_ message: String) {
         guard !stopped, error == nil else { return }
         reportProgress(force: true)
+        reportScrobble(finishing: true)
         error = message
         isPlaying = false
         isBuffering = false

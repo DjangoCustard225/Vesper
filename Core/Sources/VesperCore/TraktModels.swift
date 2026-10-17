@@ -37,20 +37,34 @@ public struct TraktDeviceCode: Decodable, Sendable {
 }
 
 public struct TraktAccount: Codable, Equatable, Sendable {
-    public let username: String
+    public let username: String?
     public let name: String?
-    public let ids: IDs
+    public let ids: IDs?
 
     public struct IDs: Codable, Equatable, Sendable {
-        public let slug: String
+        public let slug: String?
         public let uuid: String?
     }
 
-    public var id: String { ids.uuid ?? ids.slug }
-    public var displayName: String { name.flatMap { $0.isEmpty ? nil : $0 } ?? username }
+    public var id: String { ids?.uuid ?? ids?.slug ?? username ?? "" }
+    public var displayName: String {
+        [name, username, ids?.slug].compactMap { $0 }.first { !$0.isEmpty } ?? "Trakt account"
+    }
 }
 
-struct TraktUserSettings: Decodable { let user: TraktAccount }
+struct TraktUserSettings: Decodable {
+    let user: TraktAccount
+
+    private enum CodingKeys: String, CodingKey { case user }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        user =
+            try container.contains(.user)
+            ? container.decode(TraktAccount.self, forKey: .user)
+            : TraktAccount(from: decoder)
+    }
+}
 
 struct TraktIDs: Codable, Equatable, Sendable {
     var trakt: Int?
@@ -136,17 +150,24 @@ public struct TraktWatchedEntry: Sendable {
 }
 
 public struct TraktHistoryChange: Codable, Identifiable, Sendable {
-    public enum Action: String, Codable, Sendable { case watched, unwatched, stopped }
+    public enum Action: String, Codable, Sendable {
+        case watched, unwatched
+        #if !VESPER_GO
+        case stopped
+        #endif
+    }
     public let id: UUID
     public let media: MediaItem
     public let videoID: String?
     public let action: Action
     public let date: Date
-    public let progress: Double?
+    #if !VESPER_GO
+    public private(set) var progress: Double? = nil
+    #endif
 
     public init(
         id: UUID = UUID(), media: MediaItem, videoID: String? = nil, action: Action,
-        date: Date = Date(), progress: Double? = nil
+        date: Date = Date()
     ) {
         self.id = id
         var compact = media
@@ -158,17 +179,28 @@ public struct TraktHistoryChange: Codable, Identifiable, Sendable {
         self.videoID = videoID
         self.action = action
         self.date = date
+    }
+
+    #if !VESPER_GO
+    public init(
+        id: UUID = UUID(), media: MediaItem, videoID: String? = nil, action: Action,
+        date: Date = Date(), progress: Double?
+    ) {
+        self.init(id: id, media: media, videoID: videoID, action: action, date: date)
         self.progress = progress
     }
+    #endif
 
     public var watched: Bool { action != .unwatched }
 }
 
+#if !VESPER_GO
 public enum TraktScrobbleAction: String, Sendable { case start, pause, stop }
+#endif
 
 public enum TraktError: Error, LocalizedError, Equatable {
     case notConnected, reconnect, invalidResponse, unidentifiedTitle, authorizationExpired, denied
-    case accountLimit, rateLimited(TimeInterval), http(Int)
+    case accountLimit, historyLimitReached, rateLimited(TimeInterval), http(Int)
 
     public var errorDescription: String? {
         switch self {
@@ -180,6 +212,7 @@ public enum TraktError: Error, LocalizedError, Equatable {
         case .denied: "Trakt sign-in was declined."
         case .accountLimit:
             "Your Trakt account limit was reached. Review your connected apps or account limits on Trakt."
+        case .historyLimitReached: "Your Trakt watch history is too large to sync in one pass."
         case .rateLimited: "Trakt is temporarily limiting requests. Sync will try again later."
         case .http(let status): "Trakt is unavailable (\(status)). Try again later."
         }

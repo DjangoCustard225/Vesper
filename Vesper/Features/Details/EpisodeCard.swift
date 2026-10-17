@@ -2,6 +2,7 @@ import SwiftUI
 import VesperCore
 
 struct EpisodeCard: View {
+    @Environment(AppStore.self) private var store
     let media: MediaItem
     let episode: Episode
     let play: () -> Void
@@ -61,6 +62,15 @@ struct EpisodeCard: View {
                 Spacer(minLength: 4)
                 Menu {
                     Button("Play episode", systemImage: "play", action: play)
+                    if WatchProgress.supports(media), media.type == "series" {
+                        let watched = store.watchProgress.isWatched(media, episode: episode)
+                        Button(
+                            watched ? "Mark as Unwatched" : "Mark as Watched",
+                            systemImage: watched ? "circle" : "checkmark.circle"
+                        ) {
+                            store.setWatched(!watched, for: media, episode: episode)
+                        }
+                    }
                     if let overview = episode.overview, !overview.isEmpty {
                         Button("Episode description", systemImage: "text.alignleft", action: showDescription)
                     }

@@ -39,7 +39,7 @@ public struct WatchProgressRepository: Sendable {
         guard let header = try? decoder.decode(Header.self, from: data) else {
             throw WatchProgressError.unreadable
         }
-        guard (1...2).contains(header.version) else { throw WatchProgressError.unsupportedVersion }
+        guard (1...3).contains(header.version) else { throw WatchProgressError.unsupportedVersion }
         guard let value = try? decoder.decode(Envelope.self, from: data), value.progress.isValid else {
             throw WatchProgressError.unreadable
         }
@@ -64,7 +64,7 @@ public struct WatchProgressRepository: Sendable {
                 records.contains(where: { $0["lastStream"] != nil })
             else { continue }
             do {
-                try write(JSONEncoder().encode(Envelope(version: 2, progress: state)), file)
+                try write(JSONEncoder().encode(Envelope(version: 3, progress: state)), file)
                 try PersistenceIO.excludeFromBackup(file)
             } catch { throw WatchProgressError.writeFailed }
         }
@@ -89,7 +89,7 @@ public struct WatchProgressRepository: Sendable {
 
     public func save(_ state: WatchProgress) throws {
         guard state.isValid else { throw WatchProgressError.writeFailed }
-        let data = try JSONEncoder().encode(Envelope(version: 2, progress: state))
+        let data = try JSONEncoder().encode(Envelope(version: 3, progress: state))
         _ = try Self.decode(data)
         do {
             let manager = FileManager.default
@@ -99,7 +99,7 @@ public struct WatchProgressRepository: Sendable {
                 let old = try read(url)
                 do {
                     let previous = try Self.decode(old)
-                    try write(JSONEncoder().encode(Envelope(version: 2, progress: previous)), backupURL)
+                    try write(JSONEncoder().encode(Envelope(version: 3, progress: previous)), backupURL)
                     try PersistenceIO.excludeFromBackup(backupURL)
                 } catch WatchProgressError.unsupportedVersion {
                     throw WatchProgressError.unsupportedVersion

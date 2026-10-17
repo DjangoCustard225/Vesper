@@ -20,12 +20,13 @@ public actor TraktClient {
     public init(
         clientID: String = TraktClient.vesperClientID, tokens: TraktTokens? = nil,
         session: URLSession = URLSession(configuration: .ephemeral),
+        diagnostics: DiagnosticRecorder = .shared,
         persistTokens: @escaping @Sendable (TraktTokens?) throws -> Void = { _ in }
     ) {
         self.clientID = clientID
         self.tokens = tokens
         self.persistTokens = persistTokens
-        transport = HTTPTransport(session: session)
+        transport = HTTPTransport(session: session, diagnostics: diagnostics)
     }
 
     public func beginAuthorization() async throws -> TraktDeviceCode {
@@ -96,8 +97,9 @@ public actor TraktClient {
         struct Activities: Decodable { let all: String }
         let activities = try decode(Activities.self, await request("sync/last_activities"))
         guard activities.all != previousFingerprint else { return nil }
-        let movies = try decode([TraktWatchedMovie].self, await request("sync/watched/movies"))
-        let shows = try decode([TraktWatchedShow].self, await request("sync/watched/shows?extended=full"))
+        let movies = try await watchedPages(TraktWatchedMovie.self, path: "sync/watched/movies")
+        let shows = try await watchedPages(
+            TraktWatchedShow.self, path: "sync/watched/shows?extended=progress")
         var entries: [TraktWatchedEntry] = movies.compactMap { value in
             guard let media = value.movie.media(type: "movie"),
                 let date = TraktDates.parse(value.lastWatchedAt)
@@ -122,9 +124,62 @@ public actor TraktClient {
                 entries.append(TraktWatchedEntry(media: media, watchedAt: date))
             }
         }
-        return Snapshot(entries: entries, fingerprint: activities.all)
+        let recentEntries = entries.sorted { $0.watchedAt > $1.watchedAt }.prefix(2_000)
+        return Snapshot(entries: Array(recentEntries), fingerprint: activities.all)
     }
 
+    /// Refreshes watched episode state for one series without downloading the account's full history.
+    public func watchedEpisodes(for media: MediaItem) async throws -> [TraktWatchedEntry] {
+        guard media.type == "series" else { return [] }
+        let title = try await resolve(media, videoID: nil)
+        guard let id = title.ids.trakt else { throw TraktError.unidentifiedTitle }
+        struct Progress: Decodable {
+            struct Season: Decodable {
+                struct Episode: Decodable {
+                    let number: Int
+                    let completed: Bool
+                    let lastWatchedAt: String?
+
+                    enum CodingKeys: String, CodingKey {
+                        case number, completed
+                        case lastWatchedAt = "last_watched_at"
+                    }
+                }
+
+                let number: Int
+                let episodes: [Episode]
+            }
+
+            let seasons: [Season]
+        }
+        let progress = try decode(
+            Progress.self,
+            await request("shows/\(id)/progress/watched?specials=true&hidden=true"))
+        return progress.seasons.flatMap { season in
+            season.episodes.compactMap { episode in
+                guard season.number >= 0, episode.number > 0, episode.completed else { return nil }
+                let date = episode.lastWatchedAt.flatMap(TraktDates.parse) ?? .distantPast
+                return TraktWatchedEntry(
+                    media: media,
+                    videoID: "\(media.playbackID):\(season.number):\(episode.number)", watchedAt: date)
+            }
+        }
+    }
+
+    private func watchedPages<Item: Decodable>(_ type: Item.Type, path: String) async throws -> [Item] {
+        let pageSize = 100
+        var values: [Item] = []
+        for page in 1...200 {
+            let separator = path.contains("?") ? "&" : "?"
+            let data = try await request("\(path)\(separator)page=\(page)&limit=\(pageSize)")
+            let current = try decode([Item].self, data)
+            values.append(contentsOf: current)
+            if current.count < pageSize { return values }
+        }
+        throw TraktError.historyLimitReached
+    }
+
+    #if !VESPER_GO
     public func scrobble(
         _ action: TraktScrobbleAction, media: MediaItem, videoID: String, progress: Double
     ) async throws {
@@ -132,16 +187,22 @@ public actor TraktClient {
         let title = try await resolve(media, videoID: videoID)
         let body = try scrobbleBody(title, progress: progress)
         do {
-            _ = try await request("scrobble/" + action.rawValue, method: "POST", encodedBody: body)
+            struct Result: Decodable { let action: String }
+            let data = try await request("scrobble/" + action.rawValue, method: "POST", encodedBody: body)
+            let result = try decode(Result.self, data)
+            let expected = action == .stop ? ["scrobble", "pause"] : [action.rawValue]
+            guard expected.contains(result.action) else { throw TraktError.invalidResponse }
         } catch TraktError.http(409) where action == .stop {
             // Trakt rejected a duplicate completion; it is already represented in history.
         } catch TraktError.http(422) where action == .stop && progress < 1 {
             // Trakt intentionally ignores stops below one percent.
         }
     }
+    #endif
 
     public func apply(_ change: TraktHistoryChange) async throws {
         let title = try await resolve(change.media, videoID: change.videoID)
+        #if !VESPER_GO
         if change.action == .stopped, let progress = change.progress,
             Date().timeIntervalSince(change.date) < 300
         {
@@ -150,6 +211,7 @@ public actor TraktClient {
                 progress: progress)
             return
         }
+        #endif
         // Reconcile a queued addition before retrying: /sync/history does not deduplicate timestamps.
         if change.watched, try await alreadyApplied(change, title: title) { return }
         struct Item: Encodable { let ids: TraktIDs; let watched_at: String? }
@@ -179,6 +241,7 @@ public actor TraktClient {
                 Progress.self, await request("shows/\(id)/progress/watched?specials=false"))
             return value.aired > 0 && value.completed >= value.aired
         }
+        #if !VESPER_GO
         var path = "sync/history/\(title.collection)/\(id)?limit=1"
         if change.action == .stopped {
             var components = URLComponents()
@@ -188,6 +251,9 @@ public actor TraktClient {
             ]
             path += "&" + (components.percentEncodedQuery ?? "")
         }
+        #else
+        let path = "sync/history/\(title.collection)/\(id)?limit=1"
+        #endif
         struct History: Decodable { let id: Int64 }
         return !(try decode([History].self, await request(path))).isEmpty
     }
@@ -244,6 +310,7 @@ public actor TraktClient {
         return (season, episode)
     }
 
+    #if !VESPER_GO
     private func scrobbleBody(_ title: ResolvedTitle, progress: Double) throws -> Data {
         struct Item: Encodable { let ids: TraktIDs }
         struct Body: Encodable {
@@ -257,6 +324,7 @@ public actor TraktClient {
                 movie: title.kind == "movie" ? Item(ids: title.ids) : nil,
                 episode: title.kind == "episode" ? Item(ids: title.ids) : nil))
     }
+    #endif
 
     private func accessToken(force: Bool = false, replacing: String? = nil) async throws -> TraktTokens {
         if let pendingRotation {
@@ -340,7 +408,18 @@ public actor TraktClient {
         request.setValue("2", forHTTPHeaderField: "trakt-api-version")
         request.setValue("Vesper", forHTTPHeaderField: "User-Agent")
         if let token { request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization") }
-        return try await transport.data(for: request, operation: .trakt)
+        #if !VESPER_GO
+        let operation: NetworkOperation
+        switch path {
+        case "scrobble/start": operation = .traktScrobbleStart
+        case "scrobble/pause": operation = .traktScrobblePause
+        case "scrobble/stop": operation = .traktScrobbleStop
+        default: operation = .trakt
+        }
+        #else
+        let operation: NetworkOperation = .trakt
+        #endif
+        return try await transport.data(for: request, operation: operation)
     }
 
     private func decode<T: Decodable>(_ type: T.Type, _ data: Data) throws -> T {

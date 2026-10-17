@@ -399,10 +399,11 @@ final class AppStore {
 
     func contains(_ item: MediaItem) -> Bool { library.items.contains { $0.isSameTitle(as: item) } }
 
-    func setWatched(_ watched: Bool, for item: MediaItem) {
+    func setWatched(_ watched: Bool, for item: MediaItem, episode: Episode? = nil) {
         let revision = trakt.connectionRevision
-        let saved = history.setWatched(watched, for: item)
-        let change = TraktHistoryChange(media: item, action: watched ? .watched : .unwatched)
+        let saved = history.setWatched(watched, for: item, episode: episode)
+        let change = TraktHistoryChange(
+            media: item, videoID: episode?.watchHistoryID(for: item), action: watched ? .watched : .unwatched)
         Task {
             guard await saved.value, revision == trakt.connectionRevision else { return }
             trakt.enqueue(change, history: history)
@@ -415,8 +416,16 @@ final class AppStore {
 
     func resumeTrakt() async { await trakt.resume(history: history) }
 
+    func refreshTraktWatchedEpisodes(for item: MediaItem) async {
+        await trakt.refreshWatchedEpisodes(for: item, history: history)
+    }
+
     func disconnectTrakt() async { await trakt.disconnect(history: history) }
     #if !VESPER_GO
+    func removeFromContinueWatching(_ item: MediaItem) {
+        history.removeFromContinueWatching(for: item)
+    }
+
     func recordPlayback(media: MediaItem, video: VideoSelection, update: PlaybackProgressUpdate) {
         history.record(media: media, videoID: video.id, subtitle: video.title, update: update)
     }

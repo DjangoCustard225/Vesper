@@ -23,14 +23,23 @@ public final class WatchProgressController {
         }
     }
 
-    @discardableResult public func setWatched(_ watched: Bool, for item: MediaItem) -> Task<Bool, Never> {
+    @discardableResult public func setWatched(
+        _ watched: Bool, for item: MediaItem, episode: Episode? = nil
+    ) -> Task<Bool, Never> {
         commit { proposed in
-            proposed.setWatched(watched, for: item)
+            proposed.setWatched(watched, for: item, episode: episode)
             return true
         }
     }
 
     #if !VESPER_GO
+    @discardableResult public func removeFromContinueWatching(for item: MediaItem) -> Task<Bool, Never> {
+        commit { proposed in
+            proposed.removeFromContinueWatching(for: item)
+            return true
+        }
+    }
+
     public func record(media: MediaItem, videoID: String, subtitle: String?, update: PlaybackProgressUpdate) {
         commit { proposed in
             proposed.record(
@@ -51,6 +60,17 @@ public final class WatchProgressController {
         await commit { proposed in
             guard shouldApply() else { return false }
             proposed.mergeTrakt(entries, pending: pending)
+            return true
+        }.value
+    }
+
+    public func replaceTraktHistory(
+        for media: MediaItem, with entries: [TraktWatchedEntry], pending: [TraktHistoryChange],
+        shouldApply: @escaping @MainActor () -> Bool = { true }
+    ) async -> Bool {
+        await commit { proposed in
+            guard shouldApply() else { return false }
+            proposed.replaceTraktHistory(for: media, with: entries, pending: pending)
             return true
         }.value
     }

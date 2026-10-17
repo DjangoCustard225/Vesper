@@ -5,9 +5,11 @@ import tempfile
 
 root = Path(__file__).resolve().parent.parent
 playback = root / "Vesper/Features/Playback"
+reporter = (root / "Core/Sources/VesperCore/TraktPlaybackReporter.swift").read_text().split("/// Serializes delivery")[0] + "\n#endif\n"
+action = next(line for line in (root / "Core/Sources/VesperCore/TraktModels.swift").read_text().splitlines() if line.startswith("public enum TraktScrobbleAction"))
 controller = (playback / "AetherPlaybackController.swift").read_text()
 methods = []
-for name in ["togglePlayback", "pause", "setSpeed", "beginBoost", "endBoost", "applyPlaybackRate", "reportProgress"]:
+for name in ["togglePlayback", "pause", "setSpeed", "beginBoost", "endBoost", "applyPlaybackRate", "reportProgress", "reportScrobble"]:
     start = controller.index("    private func " + name + "(") if "    private func " + name + "(" in controller else controller.index("    func " + name + "(")
     body = controller.index("{", start)
     depth, end = 1, body + 1
@@ -18,7 +20,7 @@ for name in ["togglePlayback", "pause", "setSpeed", "beginBoost", "endBoost", "a
 tests = (root / "Tests/AetherPlaybackControlTests.swift").read_text().replace("// INSERT_ACTUAL_METHODS", "\n".join(methods))
 with tempfile.TemporaryDirectory(prefix="vesper-aether-controls-") as directory:
     source, binary = Path(directory) / "Regression.swift", Path(directory) / "Regression"
-    source.write_text(tests)
+    source.write_text(action + "\n" + reporter + "\n" + tests)
     subprocess.run(["swiftc", "-swift-version", "5", "-parse-as-library", str(source),
                     str(playback / "PlaybackState.swift"), str(root / "Core/Sources/VesperCore/PlaybackTimeline.swift"), str(root / "Core/Sources/VesperCore/PlaybackProgressReporter.swift"),
                     "-o", str(binary)], check=True)

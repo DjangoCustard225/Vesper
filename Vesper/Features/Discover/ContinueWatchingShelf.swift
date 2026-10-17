@@ -115,7 +115,10 @@ private struct ContinueWatchingCard: View {
         .buttonStyle(.plain)
         .accessibilityLabel("Resume \(media.name)")
         .accessibilityValue(playbackLabel + " remaining")
-        .modifier(MediaContextMenu(item: media))
+        .contextMenu {
+            MediaMenuActions(item: media)
+            removeFromContinueWatching
+        }
         .overlay(alignment: .bottomTrailing) {
             Menu {
                 NavigationLink {
@@ -124,6 +127,7 @@ private struct ContinueWatchingCard: View {
                     Label("View Details", systemImage: "info.circle")
                 }
                 MediaMenuActions(item: media)
+                removeFromContinueWatching
             } label: {
                 Image(systemName: "ellipsis").font(.system(size: 19, weight: .bold))
                     .foregroundStyle(.white.opacity(0.8)).frame(width: 44, height: 44)
@@ -136,6 +140,12 @@ private struct ContinueWatchingCard: View {
             let prepared = await HeroPresentation.prepare(record.media, store: store)
             guard !Task.isCancelled, credentialRevision == store.tmdbRevision else { return }
             presentation = prepared
+        }
+    }
+
+    private var removeFromContinueWatching: some View {
+        Button("Remove from Continue Watching", systemImage: "minus.circle") {
+            store.removeFromContinueWatching(media)
         }
     }
 
