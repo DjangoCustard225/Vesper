@@ -5,7 +5,7 @@
 <h1 align="center">Vesper</h1>
 
 <p align="center">
-  A native iOS content hub utilising Stremio add-ons.
+  Find your next movie or show, bring your Stremio add-ons, and watch your way.
 </p>
 
 <p align="center">
@@ -18,9 +18,11 @@
   <a href="https://github.com/DjangoCustard225/Vesper/releases/latest/download/VesperGo.ipa">Download Vesper Go</a>
 </p>
 
-Browse with TMDB, save titles to your library, and watch in Vesper or with external video players like Infuse or VLC.
+Vesper brings movie and TV discovery, your Stremio add-ons, and playback together on iPhone and iPad. Browse with TMDB, save titles for later, and pick up where you left off.
 
-**Vesper Go** uses external players only and installs separately alongside Vesper.
+## Vesper or Vesper Go?
+
+**Vesper** has built-in players—mpv and AVPlayer—and can also open streams in Infuse, Outplayer, or VLC. **Vesper Go** leaves out the built-in players and uses an external player instead. They install separately, so you can use either app or keep both.
 
 ## Screenshots
 
@@ -34,34 +36,28 @@ Browse with TMDB, save titles to your library, and watch in Vesper or with exter
   <img src="docs/screenshots/library.png" width="160" alt="Saved titles in the library">
 </p>
 
-## Features
+## What you can do
 
-- Browse movies and shows with immersive artwork and a customizable home carousel.
-- Explore cast, crew, actor filmographies, and related titles.
-- Pick a season and browse episodes.
-- Search titles and save favorites to your library.
-- Back up and restore your library.
-- Watch in the built-in player with Liquid Glass controls, or use external video players like Infuse or VLC.
-- Resume movies and episodes with Continue Watching, and mark titles watched or unwatched.
-- Connect Trakt to sync watched history and scrobble built-in playback.
+- Find movies and shows, explore cast and crew, and see related titles.
+- Browse seasons and episodes, then play a stream with your preferred player.
+- Keep a library, back it up, and continue watching later.
+- Connect Trakt to sync watched history and report built-in playback.
 
 ## Get started
 
-1. Download the [latest release](https://github.com/DjangoCustard225/Vesper/releases/latest), sign the unsigned IPA, and install it on **iOS 27 or later**.
-2. In **Settings → TMDB**, save and verify your [TMDB API key or Read Access Token](https://www.themoviedb.org/settings/api).
-3. In **Settings → Add-ons → Add add-on**, install a provider using its manifest URL or `stremio://` link.
-4. Open a title, tap **Play**, and choose a source. Select **mpv**, **AVPlayer**, **Infuse**, **Outplayer**, or **VLC** in **Settings → Video Player**.
+1. Download the [latest release](https://github.com/DjangoCustard225/Vesper/releases/latest) and install it on **iOS 27 or later**. The release IPAs are unsigned and must be signed before installation.
+2. Add your TMDB API key or Read Access Token in **Settings → TMDB**. [Get TMDB credentials](https://www.themoviedb.org/settings/api).
+3. Add a provider in **Settings → Add-ons** with its manifest URL or `stremio://` link.
+4. Open a title, tap **Play**, and choose a source. Pick your player in **Settings → Video Player**.
 
-Optionally connect your account in **Settings → Trakt** to sync watched history and scrobble built-in playback. Existing local history stays local; new watched/unwatched changes sync while connected. Trakt account limits apply. Your Vesper library is independent of your Trakt watchlist.
+To sync watched history, connect Trakt in **Settings → Trakt**. Vesper can bring in your Trakt history and sync watched or unwatched changes. Playback in Vesper’s built-in players is scrobbled to Trakt; playback in external players isn’t tracked.
 
-Use providers with playable HTTP/HTTPS sources. Vesper has no on-device torrent engine.
+Vesper needs providers that offer playable web streams. It doesn’t include torrent downloads.
 
 ## Privacy
 
-Credentials and add-on configuration are stored in **iOS Keychain**. Your library and resume positions stay on your device. Connecting Trakt optionally syncs watched history and shares built-in playback activity with your Trakt account; disconnecting keeps your local history. External players aren’t tracked. Requests go directly to TMDB, your providers, and Trakt when connected. Local diagnostics omit URLs and credentials. No analytics, ads, or tracking SDKs.
+Your library and resume points stay on your device. Saved credentials and add-on settings are kept in iOS Keychain. Trakt is optional; when connected, it syncs watch history and receives built-in playback activity. Vesper has no ads or analytics.
 
 ## Credits
 
-Vesper is independent of Stremio. This product uses the TMDB API but is not endorsed or certified by TMDB.
-
-Built-in playback uses [MPVKit’s libmpv](https://github.com/mpvkit/MPVKit) or [AetherEngine with AVPlayer](https://github.com/superuser404notfound/AetherEngine). License notices are available in Settings → About → Credits.
+Vesper is independent of Stremio. It uses TMDB data, but TMDB does not endorse or certify the app. Built-in playback uses [MPVKit](https://github.com/mpvkit/MPVKit) and [AetherEngine](https://github.com/superuser404notfound/AetherEngine); third-party notices are in **Settings → About → Credits**.
