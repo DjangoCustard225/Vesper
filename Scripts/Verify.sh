@@ -25,5 +25,9 @@ else
         --scratch-path "${VESPER_TEST_SCRATCH:-/tmp/vesper-verification-core}-go"
 fi
 bash Scripts/BuildIPA.sh "$task_edition"
-"$task_python" -B Scripts/VerifyIPA.py "${task_verification_arguments[@]}"
+if ((${#task_verification_arguments[@]})); then
+    "$task_python" -B Scripts/VerifyIPA.py "${task_verification_arguments[@]}"
+else
+    "$task_python" -B Scripts/VerifyIPA.py
+fi
 git diff --check

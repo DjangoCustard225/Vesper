@@ -25,7 +25,12 @@ mkdir -p "$task_staging/Payload"
 ditto "$task_archive/Products/Applications/$task_scheme.app" "$task_staging/Payload/$task_scheme.app"
 task_ipa="$task_staging/$task_scheme.ipa"
 (cd "$task_staging" && /usr/bin/zip -qry0 "$task_ipa" Payload)
-"$task_python" -B Scripts/OptimizeIPA.py "$task_ipa" "${task_verification[@]}"
-"$task_python" -B Scripts/VerifyIPA.py "$task_ipa" --native-icon "${task_verification[@]}"
+if ((${#task_verification[@]})); then
+    "$task_python" -B Scripts/OptimizeIPA.py "$task_ipa" "${task_verification[@]}"
+    "$task_python" -B Scripts/VerifyIPA.py "$task_ipa" --native-icon "${task_verification[@]}"
+else
+    "$task_python" -B Scripts/OptimizeIPA.py "$task_ipa"
+    "$task_python" -B Scripts/VerifyIPA.py "$task_ipa" --native-icon
+fi
 mv "$task_ipa" "xtool/$task_scheme.ipa"
 mv "$task_staging/$task_scheme.sha256" "xtool/$task_scheme.sha256"
