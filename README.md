@@ -30,7 +30,7 @@ For Dolby Vision and HDR playback, choose AVPlayer.
 
 <picture>
   <source media="(max-width: 600px)" srcset="docs/screenshots/readme-mobile.png">
-  <img src="docs/screenshots/readme-desktop.png" alt="Four Vesper app screenshots arranged for desktop or mobile">
+  <img src="docs/screenshots/readme-desktop.png" width="840" alt="Four Vesper app screenshots arranged for desktop or mobile">
 </picture>
 
 ## What you can do
