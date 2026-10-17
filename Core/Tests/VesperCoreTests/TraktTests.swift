@@ -20,6 +20,16 @@ final class TraktClientTests: XCTestCase {
         #"{"device_code":"private-device-code","user_code":"ABCD1234","verification_url":"https://auth.trakt.tv/activate","expires_in":600,"interval":1}"#
             .utf8)
 
+    func testHTTPFixtureMaterializesStreamedRequestBody() throws {
+        let expectedBody = Data(#"{"client_id":"public-client"}"#.utf8)
+        var request = URLRequest(url: URL(string: "https://fixture.invalid/body")!)
+        request.httpBodyStream = InputStream(data: expectedBody)
+
+        let materialized = try HTTPFixture.materializingRequestBody(in: request)
+        XCTAssertEqual(materialized.httpBody, expectedBody)
+        XCTAssertNil(materialized.httpBodyStream)
+    }
+
     func testDeviceFlowUsesAuthHostAndNoClientSecret() async throws {
         let fixture = HTTPFixture()
         fixture.handler = { request in

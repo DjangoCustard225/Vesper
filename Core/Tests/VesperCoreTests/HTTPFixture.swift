@@ -19,6 +19,7 @@ struct FixtureResponse: Sendable {
 
 /// Each fixture owns its handler; sessions carry only an opaque test identifier.
 final class HTTPFixture: @unchecked Sendable {
+    private static let maximumRequestBodySize = 1_048_576
     typealias Handler = (URLRequest) throws -> FixtureResponse
     private final class WeakFixture {
         weak var value: HTTPFixture?
@@ -96,6 +97,29 @@ final class HTTPFixture: @unchecked Sendable {
         registryLock.unlock()
         return fixture?.respond
     }
+
+    static func materializingRequestBody(in request: URLRequest) throws -> URLRequest {
+        guard request.httpBody == nil, let stream = request.httpBodyStream else { return request }
+        stream.open()
+        defer { stream.close() }
+
+        var body = Data()
+        var buffer = [UInt8](repeating: 0, count: 16_384)
+        while true {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            guard count >= 0 else { throw stream.streamError ?? URLError(.cannotDecodeContentData) }
+            guard count > 0 else { break }
+            guard body.count + count <= maximumRequestBodySize else {
+                throw URLError(.dataLengthExceedsMaximum)
+            }
+            body.append(contentsOf: buffer[..<count])
+        }
+
+        var materialized = request
+        materialized.httpBodyStream = nil
+        materialized.httpBody = body
+        return materialized
+    }
 }
 
 // Mutable protocol state is locked; response delivery is serialized for FoundationNetworking.
@@ -120,7 +144,10 @@ final class FixtureURLProtocol: URLProtocol {
         }
         let work = Work(handler: handler, owner: self)
         DispatchQueue.global().async {
-            do { work.owner.send(try work.handler(work.owner.request), index: 0) } catch {
+            do {
+                let request = try HTTPFixture.materializingRequestBody(in: work.owner.request)
+                work.owner.send(try work.handler(request), index: 0)
+            } catch {
                 Self.delivery.async {
                     work.owner.deliver { $0.urlProtocol(work.owner, didFailWithError: error) }
                 }
