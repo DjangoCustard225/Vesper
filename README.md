@@ -28,15 +28,16 @@ For Dolby Vision and HDR playback, choose AVPlayer.
 
 ## Screenshots
 
-<p align="center">
-  <img src="docs/screenshots/discover.png" width="160" alt="Discover movies and shows">
-  &emsp;
-  <img src="docs/screenshots/movie-details.png" width="160" alt="Movie details and related titles">
-  &emsp;
-  <img src="docs/screenshots/series-details.png" width="160" alt="Series details and episodes">
-  &emsp;
-  <img src="docs/screenshots/library.png" width="160" alt="Saved titles in the library">
-</p>
+<table width="100%">
+  <tr>
+    <td align="center" width="50%"><img src="docs/screenshots/discover.png" width="160" alt="Discover movies and shows"></td>
+    <td align="center" width="50%"><img src="docs/screenshots/movie-details.png" width="160" alt="Movie details and related titles"></td>
+  </tr>
+  <tr>
+    <td align="center" width="50%"><img src="docs/screenshots/series-details.png" width="160" alt="Series details and episodes"></td>
+    <td align="center" width="50%"><img src="docs/screenshots/library.png" width="160" alt="Saved titles in the library"></td>
+  </tr>
+</table>
 
 ## What you can do
 
