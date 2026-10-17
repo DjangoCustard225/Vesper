@@ -26,6 +26,13 @@ final class AppStore {
     private(set) var heroCatalogID: String
     private(set) var availablePlayers: [VideoPlayer]
 
+    var showAllExternalPlayers: Bool {
+        didSet {
+            AppPreferenceStorage.saveShowAllExternalPlayers(showAllExternalPlayers)
+            refreshPlayers()
+        }
+    }
+
     var preferredPlayer: VideoPlayer {
         didSet { AppPreferenceStorage.save(preferredPlayer) }
     }
@@ -76,6 +83,8 @@ final class AppStore {
     // MARK: - Initialization
 
     init() {
+        let showAllExternalPlayers = AppPreferenceStorage.showAllExternalPlayers()
+        self.showAllExternalPlayers = showAllExternalPlayers
         #if !VESPER_GO
         showContinueWatching = AppPreferenceStorage.showContinueWatching()
         playerGestures = AppPreferenceStorage.gestures()
@@ -90,7 +99,7 @@ final class AppStore {
             localStorageError = error.localizedDescription
         }
         addons = saved.filter { !AddonPolicy.isCinemeta($0) }
-        let players = AppIdentity.detectedPlayers()
+        let players = AppIdentity.detectedPlayers(showAllExternalPlayers: showAllExternalPlayers)
         availablePlayers = players
         let player = AppPreferenceStorage.preferredPlayer().availablePreference(in: players)
         preferredPlayer = player
@@ -128,7 +137,7 @@ final class AppStore {
     var enabledAddons: [InstalledAddon] { addons.filter(\.isEnabled) }
 
     func refreshPlayers() {
-        availablePlayers = AppIdentity.detectedPlayers()
+        availablePlayers = AppIdentity.detectedPlayers(showAllExternalPlayers: showAllExternalPlayers)
         let available = preferredPlayer.availablePreference(in: availablePlayers)
         if available != preferredPlayer { preferredPlayer = available }
     }

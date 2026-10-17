@@ -18,6 +18,14 @@ enum AppPreferenceStorage {
         defaults.set(player.rawValue, forKey: "preferredPlayer")
     }
 
+    static func showAllExternalPlayers(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: "showAllExternalPlayers")
+    }
+
+    static func saveShowAllExternalPlayers(_ visible: Bool, in defaults: UserDefaults = .standard) {
+        defaults.set(visible, forKey: "showAllExternalPlayers")
+    }
+
     #if !VESPER_GO
     static func gestures(in defaults: UserDefaults = .standard) -> PlayerGesturePreferences {
         defaults.data(forKey: "playerGestures")

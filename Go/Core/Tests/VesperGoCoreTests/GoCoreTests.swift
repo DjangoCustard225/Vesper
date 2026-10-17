@@ -45,6 +45,20 @@ final class GoCoreTests: XCTestCase {
         XCTAssertEqual(VideoPlayer.outplayer.availablePreference(in: empty), .outplayer)
     }
 
+    func testManualSelectionKeepsAllExternalPlayersWhenContainerCannotQuerySchemes() throws {
+        let available = VideoPlayer.availablePlayers(
+            VideoPlayer.allCases, showAllExternalPlayers: true
+        ) { _ in
+            XCTFail("Manual selection must not depend on scheme queries")
+            return false
+        }
+        XCTAssertEqual(available, [.vlc, .infuse, .outplayer])
+        for player in available {
+            XCTAssertEqual(player.availablePreference(in: available), player)
+            XCTAssertNoThrow(try player.launchURL(for: URL(string: "https://example.com/movie.mkv")!))
+        }
+    }
+
     func testManualWatchedStateFollowsEnrichedTitleIdentity() {
         let original = MediaItem(id: "tmdb:movie:42", type: "movie", name: "Movie")
         var enriched = MediaItem(id: "tt123", type: "movie", name: "Movie")

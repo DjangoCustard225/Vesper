@@ -16,6 +16,11 @@ struct VideoPlayerSettingsView: View {
                     }
                 }
             }
+            Section {
+                Toggle("Show all external players", isOn: $store.showAllExternalPlayers)
+            } footer: {
+                Text("Enable if using Vesper in LiveContainer.")
+            }
             #if !VESPER_GO
             Section("Gestures") {
                 Toggle("Hold for 2×", isOn: gestureBinding(\.holdFor2x))

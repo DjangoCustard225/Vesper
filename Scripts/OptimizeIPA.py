@@ -11,7 +11,7 @@ import sys
 import tempfile
 import zipfile
 
-from VerifyIPA import arm64_commands, verify
+from VerifyIPA import LinkeditAlignmentError, arm64_commands, verify
 
 
 def strip_command():
@@ -113,6 +113,13 @@ def optimize(ipa, root, go=False):
                             binary.write_bytes(data)
                             subprocess.run(tool + [str(binary)], check=True, capture_output=True, text=True)
                             result = binary.read_bytes()
+                            try:
+                                arm64_commands(result)
+                            except LinkeditAlignmentError:
+                                # Some LLVM versions omit 64-bit string-pool padding. Keep the
+                                # valid input instead of shipping a binary dyld cannot load.
+                                print(f"Kept {entry.filename}: stripping produced invalid LINKEDIT alignment", flush=True)
+                                result = data
                             if runtime_identity(result) != before:
                                 raise ValueError(f"Runtime content changed while stripping {entry.filename}")
                             if len(result) < len(data):

@@ -11,6 +11,10 @@ import sys
 import zipfile
 
 
+class LinkeditAlignmentError(ValueError):
+    """The loader cannot use a misaligned 64-bit LINKEDIT table."""
+
+
 def arm64_commands(data):
     if data[:4] == b"\xca\xfe\xba\xbe":
         count = struct.unpack_from(">I", data, 4)[0]
@@ -35,6 +39,12 @@ def arm64_commands(data):
                 commands.setdefault("dylibs", []).append(path)
         if command == 0x2:
             symoff, nsyms, stroff, strsize = struct.unpack_from("<IIII", data, offset + 8)
+            for name, position, length in (("symbol table", symoff, nsyms * 16),
+                                            ("string pool", stroff, strsize)):
+                if length and position % 8:
+                    raise LinkeditAlignmentError(f"Misaligned LINKEDIT {name} at 0x{position:X}")
+                if position + length > len(data):
+                    raise ValueError(f"LINKEDIT {name} extends beyond the binary")
             symbols, exports, imports, aliases = set(), set(), {}, {}
             for index in range(nsyms):
                 start, kind, section, description, value = struct.unpack_from("<IBBHQ", data, symoff + index * 16)

@@ -57,6 +57,23 @@ final class ExternalPlayerTests: XCTestCase {
         XCTAssertEqual(VideoPlayer.outplayer.availablePreference(in: restored), .outplayer)
     }
 
+    func testManualSelectionBypassesUnavailableSchemeQueriesAndPreservesPreference() throws {
+        let available = VideoPlayer.availablePlayers(
+            VideoPlayer.allCases, showAllExternalPlayers: true
+        ) { _ in
+            XCTFail("Manual selection must not query the container host for installed players")
+            return false
+        }
+        XCTAssertEqual(available, VideoPlayer.allCases)
+        let stream = URL(string: "https://video.example/movie.mkv")!
+        for player in VideoPlayer.externalPlayers {
+            XCTAssertEqual(player.availablePreference(in: available), player)
+            XCTAssertNoThrow(try player.launchURL(for: stream))
+        }
+        let detected = VideoPlayer.availablePlayers(VideoPlayer.allCases) { _ in false }
+        XCTAssertEqual(detected, [.builtIn, .aether])
+    }
+
     func testInstalledPreferenceSurvivesRescansAndRemovedAppsGetAvailableFallback() {
         let available = VideoPlayer.availablePlayers(VideoPlayer.externalPlayers) { _ in true }
         XCTAssertEqual(VideoPlayer.outplayer.availablePreference(in: available), .outplayer)

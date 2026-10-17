@@ -86,6 +86,7 @@
 !/Scripts/Format.sh
 !/Scripts/TestMPVPlayback.py
 !/Scripts/TestAetherPlayback.py
+!/Scripts/TestIPAPackaging.py
 /Tests/*
 !/Tests/MPVPlaybackMocks.swift
 !/Tests/MPVPlaybackControllerTests.swift

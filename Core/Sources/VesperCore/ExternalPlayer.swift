@@ -36,9 +36,13 @@ public enum VideoPlayer: String, CaseIterable, Identifiable, Codable, Sendable {
         }
     }
 
-    public static func availablePlayers(_ candidates: [VideoPlayer], canOpen: (URL) -> Bool) -> [VideoPlayer]
-    {
-        candidates.filter { $0.detectionURL.map(canOpen) ?? true }
+    public static func availablePlayers(
+        _ candidates: [VideoPlayer], showAllExternalPlayers: Bool = false, canOpen: (URL) -> Bool
+    ) -> [VideoPlayer] {
+        // A container host can deny scheme queries even when opening the URL succeeds.
+        // Manual selection must not depend on that query result.
+        if showAllExternalPlayers { return candidates }
+        return candidates.filter { $0.detectionURL.map(canOpen) ?? true }
     }
 
     public func availablePreference(in players: [VideoPlayer]) -> VideoPlayer {

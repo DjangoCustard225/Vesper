@@ -14,6 +14,7 @@ swift test "${task_arguments[@]}" --package-path Core \
     --cache-path "$XDG_CACHE_HOME/swiftpm" \
     --scratch-path "${VESPER_TEST_SCRATCH:-/tmp/vesper-verification-core}"
 task_python="${VESPER_PYTHON:-$(command -v python3)}"
+"$task_python" -B Scripts/TestIPAPackaging.py
 task_verification_arguments=()
 if [[ "$task_edition" == "vesper" ]]; then
     "$task_python" -B Scripts/TestMPVPlayback.py

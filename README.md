@@ -46,6 +46,8 @@ For Dolby Vision and HDR playback, choose AVPlayer.
 3. Add a provider in **Settings → Add-ons** with its manifest URL or `stremio://` link.
 4. Open a title and tap **Play** to choose a source. Set your player in **Settings → Video Player**.
 
+If you use Vesper or Vesper Go in LiveContainer, enable **Settings → Video Player → Show all external players**.
+
 Connect Trakt in **Settings → Trakt** to import watch history and sync watched status. Playback in Vesper’s built-in players is reported to Trakt. External playback isn’t tracked.
 
 Vesper needs providers with playable web streams. It doesn’t support torrent downloads.
