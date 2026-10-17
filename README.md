@@ -57,3 +57,5 @@ Your library and resume points stay on your device. Credentials and add-on setti
 ## Credits
 
 Vesper is independent of Stremio. Built-in playback uses [MPVKit](https://github.com/mpvkit/MPVKit) or [AetherEngine](https://github.com/superuser404notfound/AetherEngine). Third-party notices are in **Settings → About → Credits**.
+
+Vesper is licensed under MIT. Third-party components keep their own licenses. See [LICENSE](LICENSE).
