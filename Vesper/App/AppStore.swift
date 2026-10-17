@@ -39,6 +39,7 @@ final class AppStore {
     private(set) var isClearingCache = false
     private(set) var library = LibraryState()
     private let history = WatchProgressController(repository: WatchProgressStorage.repository)
+    let trakt = TraktStore()
 
     var watchProgress: WatchProgress { history.state }
     #if !VESPER_GO
@@ -399,11 +400,29 @@ final class AppStore {
     func contains(_ item: MediaItem) -> Bool { library.items.contains { $0.isSameTitle(as: item) } }
 
     func setWatched(_ watched: Bool, for item: MediaItem) {
-        history.setWatched(watched, for: item)
+        let revision = trakt.connectionRevision
+        let saved = history.setWatched(watched, for: item)
+        let change = TraktHistoryChange(media: item, action: watched ? .watched : .unwatched)
+        Task {
+            guard await saved.value, revision == trakt.connectionRevision else { return }
+            trakt.enqueue(change, history: history)
+        }
     }
+
+    func connectTrakt() { trakt.startSignIn(history: history) }
+
+    func syncTrakt(force: Bool = false) async { await trakt.synchronize(history: history, force: force) }
+
+    func resumeTrakt() async { await trakt.resume(history: history) }
+
+    func disconnectTrakt() async { await trakt.disconnect(history: history) }
     #if !VESPER_GO
     func recordPlayback(media: MediaItem, video: VideoSelection, update: PlaybackProgressUpdate) {
         history.record(media: media, videoID: video.id, subtitle: video.title, update: update)
+    }
+
+    func scrobble(_ event: TraktScrobbleEvent, media: MediaItem, videoID: String) {
+        trakt.receive(event, media: media, videoID: videoID, history: history)
     }
     #endif
 

@@ -52,6 +52,7 @@ private struct PlayerControls<Controller: PlaybackControlling, Surface: View>: V
     @State private var interactionID = 0
     @State private var controlFrames: [CGRect] = []
     @State private var adjustments = PlayerSystemAdjustments()
+    @State private var scrobbleReporter = TraktPlaybackReporter()
 
     init(
         request: PlaybackRequest, gesturePreferences: PlayerGesturePreferences, players: [VideoPlayer],
@@ -84,6 +85,10 @@ private struct PlayerControls<Controller: PlaybackControlling, Surface: View>: V
         }
         .foregroundStyle(.white).tint(.white).preferredColorScheme(.dark)
         .statusBarHidden().persistentSystemOverlays(.hidden)
+        .onChange(of: scrobbleSample) { _, sample in
+            guard !request.isLive, request.onScrobble != nil else { return }
+            if let event = scrobbleReporter.update(sample) { request.onScrobble?(event) }
+        }
         .onChange(of: controller.isPlaying) { _, _ in scheduleHide() }
         .onChange(of: controller.isBuffering) { _, _ in scheduleHide() }
         .onChange(of: controller.isBoosting) { _, _ in scheduleHide() }
@@ -120,9 +125,21 @@ private struct PlayerControls<Controller: PlaybackControlling, Surface: View>: V
         .onChange(of: voiceOver) { _, _ in scheduleHide() }
         .onDisappear {
             hideTask?.cancel()
+            finishScrobble()
             controller.stop()
             adjustments.restoreBrightness()
         }
+    }
+
+    private var scrobbleSample: TraktPlaybackSample {
+        TraktPlaybackSample(
+            elapsed: controller.timeline.elapsed, duration: controller.timeline.duration,
+            playing: controller.isPlaying, buffering: controller.isBuffering, ended: controller.hasEnded)
+    }
+
+    private func finishScrobble() {
+        guard !request.isLive, let event = scrobbleReporter.finish() else { return }
+        request.onScrobble?(event)
     }
 
     private func playerCanvas(size: CGSize, videoCenter: CGPoint) -> some View {
@@ -438,6 +455,7 @@ private struct PlayerControls<Controller: PlaybackControlling, Surface: View>: V
 
     private func close() {
         hideTask?.cancel()
+        finishScrobble()
         controller.stop()
         adjustments.restoreBrightness()
         closePlayer()
@@ -445,6 +463,7 @@ private struct PlayerControls<Controller: PlaybackControlling, Surface: View>: V
 
     private func switchPlayer(_ player: VideoPlayer) {
         hideTask?.cancel()
+        finishScrobble()
         controller.stop()
         adjustments.restoreBrightness()
         choosePlayer(player)

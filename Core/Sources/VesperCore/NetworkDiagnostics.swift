@@ -1,7 +1,7 @@
 import Foundation
 
 public enum NetworkOperation: String, Codable, Sendable {
-    case tmdb, manifest, catalog, metadata, streams, artwork
+    case tmdb, trakt, manifest, catalog, metadata, streams, artwork
 
     public init(from decoder: Decoder) throws {
         let value = try decoder.singleValueContainer().decode(String.self)

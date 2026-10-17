@@ -10,14 +10,19 @@ struct VesperApp: App {
         WindowGroup {
             RootView().environment(store).tint(.white).preferredColorScheme(.dark)
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .active { store.refreshPlayers() }
+                    if phase == .active {
+                        store.refreshPlayers()
+                        Task { await store.resumeTrakt() }
+                    }
                     if phase == .background {
+                        store.trakt.suspend()
                         Task {
                             await store.flushWatchProgress()
                             await DiagnosticRecorder.shared.flush()
                         }
                     }
                 }
+                .task { await store.resumeTrakt() }
                 .onReceive(
                     NotificationCenter.default.publisher(
                         for: UIApplication.didReceiveMemoryWarningNotification)

@@ -8,7 +8,7 @@ public final class WatchProgressController {
     public private(set) var state = WatchProgress()
     public var error: String?
     @ObservationIgnored private let writer: WatchProgressWriter
-    @ObservationIgnored private var pendingSave: (id: UUID, task: Task<Void, Never>)?
+    @ObservationIgnored private var pendingSave: (id: UUID, task: Task<Bool, Never>)?
     @ObservationIgnored private var writable = true
 
     public init(repository: WatchProgressRepository) {
@@ -23,7 +23,7 @@ public final class WatchProgressController {
         }
     }
 
-    public func setWatched(_ watched: Bool, for item: MediaItem) {
+    @discardableResult public func setWatched(_ watched: Bool, for item: MediaItem) -> Task<Bool, Never> {
         commit { proposed in
             proposed.setWatched(watched, for: item)
             return true
@@ -41,28 +41,52 @@ public final class WatchProgressController {
     #endif
 
     public func flush() async {
-        while let pendingSave { await pendingSave.task.value }
+        while let pendingSave { _ = await pendingSave.task.value }
     }
 
-    private func commit(_ change: @escaping @MainActor (inout WatchProgress) -> Bool) {
+    public func mergeTrakt(
+        _ entries: [TraktWatchedEntry], pending: [TraktHistoryChange],
+        shouldApply: @escaping @MainActor () -> Bool = { true }
+    ) async -> Bool {
+        await commit { proposed in
+            guard shouldApply() else { return false }
+            proposed.mergeTrakt(entries, pending: pending)
+            return true
+        }.value
+    }
+
+    public func detachTrakt() async {
+        _ = await commit { proposed in
+            proposed.detachTrakt()
+            return true
+        }.value
+    }
+
+    @discardableResult private func commit(_ change: @escaping @MainActor (inout WatchProgress) -> Bool)
+        -> Task<Bool, Never>
+    {
         guard writable else {
             error = WatchProgressError.unreadable.localizedDescription
-            return
+            return Task { false }
         }
         let previous = pendingSave?.task
         let id = UUID()
-        let task = Task {
+        let task = Task<Bool, Never> {
             // Each change starts from the preceding successful commit, not a stale UI snapshot.
-            await previous?.value
+            _ = await previous?.value
+            var success = false
             var proposed = self.state
             if change(&proposed) {
                 do {
                     try await self.writer.save(proposed)
                     self.state = proposed
+                    success = true
                 } catch { self.error = error.localizedDescription }
             }
             if self.pendingSave?.id == id { self.pendingSave = nil }
+            return success
         }
         pendingSave = (id, task)
+        return task
     }
 }

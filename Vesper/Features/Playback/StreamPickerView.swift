@@ -164,6 +164,9 @@ struct StreamPickerView: View {
                         resumeSeconds: store.watchProgress.resumePosition(for: media, videoID: video.id),
                         onProgress: { [store, media, video] update in
                             store.recordPlayback(media: media, video: video, update: update)
+                        },
+                        onScrobble: { [store, media, video] event in
+                            store.scrobble(event, media: media, videoID: video.id)
                         })
                     return
                 }

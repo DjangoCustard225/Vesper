@@ -22,6 +22,16 @@ struct SettingsView: View {
                             .secondary)
                     }
                 }
+                NavigationLink {
+                    TraktSettingsView()
+                } label: {
+                    HStack {
+                        Label("Trakt", systemImage: "checkmark.circle")
+                        Spacer()
+                        Text(store.trakt.isConnected ? "Connected" : "Not connected")
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
             Section {
                 NavigationLink {

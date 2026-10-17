@@ -43,6 +43,7 @@ Browse with TMDB, save titles to your library, and watch in Vesper or with exter
 - Back up and restore your library.
 - Watch in the built-in player with Liquid Glass controls, or use external video players like Infuse or VLC.
 - Resume movies and episodes with Continue Watching, and mark titles watched or unwatched.
+- Connect Trakt to sync watched history and scrobble built-in playback.
 
 ## Get started
 
@@ -51,11 +52,13 @@ Browse with TMDB, save titles to your library, and watch in Vesper or with exter
 3. In **Settings → Add-ons → Add add-on**, install a provider using its manifest URL or `stremio://` link.
 4. Open a title, tap **Play**, and choose a source. Select **mpv**, **AVPlayer**, **Infuse**, **Outplayer**, or **VLC** in **Settings → Video Player**.
 
+Optionally connect your account in **Settings → Trakt** to sync watched history and scrobble built-in playback. Existing local history stays local; new watched/unwatched changes sync while connected. Trakt account limits apply. Your Vesper library is independent of your Trakt watchlist.
+
 Use providers with playable HTTP/HTTPS sources. Vesper has no on-device torrent engine.
 
 ## Privacy
 
-Credentials and add-on configuration are stored in **iOS Keychain**. Your library and built-in player progress stay on your device; progress is excluded from device backups and isn’t synced. External players aren’t tracked. Requests go directly to TMDB and your providers. Local diagnostics omit URLs and credentials. No analytics, ads, or tracking SDKs.
+Credentials and add-on configuration are stored in **iOS Keychain**. Your library and resume positions stay on your device. Connecting Trakt optionally syncs watched history and shares built-in playback activity with your Trakt account; disconnecting keeps your local history. External players aren’t tracked. Requests go directly to TMDB, your providers, and Trakt when connected. Local diagnostics omit URLs and credentials. No analytics, ads, or tracking SDKs.
 
 ## Credits
 

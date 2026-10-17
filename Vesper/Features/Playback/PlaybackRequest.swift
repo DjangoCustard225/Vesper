@@ -12,4 +12,5 @@ struct PlaybackRequest: Identifiable {
     var isLive = false
     var resumeSeconds: Double = 0
     var onProgress: (@MainActor (PlaybackProgressUpdate) -> Void)? = nil
+    var onScrobble: (@MainActor (TraktScrobbleEvent) -> Void)? = nil
 }

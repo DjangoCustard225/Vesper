@@ -252,7 +252,7 @@ final class WatchProgressRepositoryTests: XCTestCase {
     func testFutureVersionIsNeverOverwrittenEvenWithValidBackup() throws {
         try repository.save(state(100))
         try repository.save(state(200))
-        let future = Data("{\"version\":2,\"progress\":{\"records\":[]}}".utf8)
+        let future = Data("{\"version\":99,\"progress\":{\"records\":[]}}".utf8)
         try future.write(to: repository.url)
         XCTAssertThrowsError(try repository.load())
         XCTAssertThrowsError(try repository.save(state(300)))

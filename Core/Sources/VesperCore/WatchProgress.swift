@@ -8,10 +8,10 @@ public struct WatchRecord: Codable, Identifiable, Sendable {
     public let duration: Double
     public let watched: Bool
     public let updatedAt: Date
+    public var importedFromTrakt: Bool? = nil
 
     public var id: String { media.key + ":" + (videoID ?? "watched") }
 
-    #if !VESPER_GO
     // A show's episode identity remains stable when TMDB enrichment adds an IMDb ID.
     public var episodeKey: String? {
         guard media.type == "series", let videoID else { return nil }
@@ -24,10 +24,12 @@ public struct WatchRecord: Codable, Identifiable, Sendable {
 
     public var season: Int? { episodeKey.flatMap { Int($0.split(separator: ":")[0]) } }
 
+    #if !VESPER_GO
     public func playbackID(for item: MediaItem) -> String {
         if let episodeKey { return item.playbackID + ":" + episodeKey }
         return videoID.map { MediaIdentity.videoID($0, for: item) } ?? item.playbackID
     }
+    #endif
 
     fileprivate func matches(videoID: String, media: MediaItem) -> Bool {
         guard self.media.isSameTitle(as: media), self.videoID != nil else { return false }
@@ -38,7 +40,6 @@ public struct WatchRecord: Codable, Identifiable, Sendable {
         if let episodeKey, let other = candidate.episodeKey { return episodeKey == other }
         return self.videoID == videoID
     }
-    #endif
 }
 
 public struct WatchProgress: Codable, Sendable {
@@ -121,6 +122,80 @@ public struct WatchProgress: Codable, Sendable {
         (media.type == "movie" || media.type == "series") && media.behaviorHints?.isLive != true
     }
 
+    /// Remote watched state never supplies fabricated resume positions. Newer local rewatches win.
+    public mutating func mergeTrakt(
+        _ entries: [TraktWatchedEntry], pending: [TraktHistoryChange] = []
+    ) {
+        var artwork: [String: MediaItem] = [:]
+        for record in records {
+            for alias in MediaIdentity.aliases(record.media) where artwork[alias] == nil {
+                artwork[alias] = record.media
+            }
+        }
+        let local = records.filter { $0.importedFromTrakt != true }
+        var localIndices: [String: Set<Int>] = [:]
+        var pendingIndices: [String: Set<Int>] = [:]
+        for (index, record) in local.enumerated() {
+            for alias in MediaIdentity.aliases(record.media) {
+                localIndices[alias, default: []].insert(index)
+            }
+        }
+        for (index, change) in pending.enumerated() {
+            for alias in MediaIdentity.aliases(change.media) {
+                pendingIndices[alias, default: []].insert(index)
+            }
+        }
+        var removed = Set<Int>()
+        var imported: [WatchRecord] = []
+        var seen = Set<String>()
+        // Match by pre-indexed IDs and keep the existing 2,000-record bound, even for huge Trakt accounts.
+        for entry in entries.sorted(by: { $0.watchedAt > $1.watchedAt }).prefix(2_000) {
+            guard Self.supports(entry.media) else { continue }
+            let aliases = MediaIdentity.aliases(entry.media)
+            let episode = entry.videoID.flatMap(TraktClient.episode).map { "\($0.season):\($0.number)" }
+            let targetAliases = Set(aliases.map { $0 + ":" + (episode ?? "watched") })
+            guard seen.isDisjoint(with: targetAliases) else { continue }
+            seen.formUnion(targetAliases)
+            let edits = Set(aliases.flatMap { pendingIndices[$0] ?? [] })
+            guard
+                !edits.contains(where: { index in
+                    let change = pending[index]
+                    if entry.media.type == "movie" || change.videoID == nil || entry.videoID == nil {
+                        return true
+                    }
+                    return TraktClient.episode(change.videoID).map { "\($0.season):\($0.number)" } == episode
+                })
+            else { continue }
+            let candidates = Set(aliases.flatMap { localIndices[$0] ?? [] }).subtracting(removed)
+            let matches: (Int) -> Bool = { index in
+                if entry.media.type == "movie" { return true }
+                if entry.videoID == nil { return local[index].videoID == nil }
+                return episode.map { local[index].episodeKey == $0 }
+                    ?? (local[index].videoID == entry.videoID)
+            }
+            guard
+                !candidates.contains(where: {
+                    local[$0].updatedAt > entry.watchedAt.addingTimeInterval(1)
+                        && (entry.videoID == nil || matches($0))
+                })
+            else { continue }
+            let media = aliases.sorted().compactMap { artwork[$0] }.first ?? entry.media
+            removed.formUnion(candidates.filter(matches))
+            var record = WatchRecord(
+                media: Self.compact(media), videoID: entry.videoID, subtitle: nil,
+                elapsed: 0, duration: 0, watched: true, updatedAt: entry.watchedAt)
+            record.importedFromTrakt = true
+            imported.append(record)
+        }
+        records = local.indices.filter { !removed.contains($0) }.map { local[$0] } + imported
+        records.sort { $0.updatedAt > $1.updatedAt }
+        trim()
+    }
+
+    public mutating func detachTrakt() {
+        for index in records.indices { records[index].importedFromTrakt = nil }
+    }
+
     private static func compact(_ media: MediaItem) -> MediaItem {
         var result = media
         result.videos = nil
@@ -139,7 +214,8 @@ public struct WatchProgress: Codable, Sendable {
                 Self.supports($0.media) && !$0.media.id.isEmpty && !$0.media.name.isEmpty
                     && $0.media.videos == nil && $0.elapsed.isFinite && $0.duration.isFinite
                     && $0.elapsed >= 0 && $0.duration >= 0 && $0.elapsed <= $0.duration
-                    && ($0.videoID == nil ? $0.watched : ($0.videoID != "" && $0.duration > 0))
+                    && ($0.videoID == nil
+                        ? $0.watched : ($0.videoID != "" && ($0.duration > 0 || $0.watched)))
             }
     }
 }
