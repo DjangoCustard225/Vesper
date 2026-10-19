@@ -62,6 +62,10 @@ extension SecureStorage.Key where Value == String {
     static var heroCatalog: Self { Self(account: "heroCatalog") }
 }
 
+extension SecureStorage.Key where Value == TVDBCredentials {
+    static var tvdbCredentials: Self { Self(account: "tvdbCredentials") }
+}
+
 extension SecureStorage.Key where Value == TraktTokens {
     static var traktTokens: Self { Self(account: "traktTokens") }
 }

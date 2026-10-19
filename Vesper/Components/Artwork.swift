@@ -11,11 +11,13 @@ struct ImmersiveArtworkSource {
 struct Artwork: View {
     let url: String?
     var alignment: Alignment = .center
+    var retainsPreviousImage = false
 
     private var imageURL: URL? { url.flatMap { try? AddonURL.http($0) } }
 
     var body: some View {
-        CachedArtworkImage(url: imageURL, fadesIn: true) { phase in
+        CachedArtworkImage(url: imageURL, fadesIn: true, retainsPreviousImage: retainsPreviousImage) {
+            phase in
             switch phase {
             case .success(let image):
                 image.resizable().scaledToFill()
@@ -51,7 +53,7 @@ struct ImmersiveArtwork: View {
                 if isLandscape {
                     landscapeArtwork(size: proxy.size)
                 } else {
-                    Artwork(url: source.preferred, alignment: .top)
+                    Artwork(url: source.preferred, alignment: .top, retainsPreviousImage: true)
                 }
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
@@ -80,7 +82,7 @@ struct ImmersiveArtwork: View {
 
     @ViewBuilder private func landscapeArtwork(size: CGSize) -> some View {
         let url = source.preferred.flatMap { try? AddonURL.http($0) }
-        CachedArtworkImage(url: url, fadesIn: true) { phase in
+        CachedArtworkImage(url: url, fadesIn: true, retainsPreviousImage: true) { phase in
             if let image = phase.image {
                 let dimensions = url.flatMap { ArtworkPipeline.shared.cachedImage(for: $0)?.size }
                 let wide =

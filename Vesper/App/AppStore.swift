@@ -9,6 +9,8 @@ final class AppStore {
         directory: AppStore.cacheDirectory.appendingPathComponent("Addons"))
     @ObservationIgnored private let tmdbCache = ResponseCache(
         directory: AppStore.cacheDirectory.appendingPathComponent("TMDB"))
+    @ObservationIgnored private let tvdbCache = ResponseCache(
+        directory: AppStore.cacheDirectory.appendingPathComponent("TVDB"))
     private(set) var addonRevision = UUID()
 
     private(set) var addons: [InstalledAddon] {
@@ -68,6 +70,14 @@ final class AppStore {
     var incomingAddon: String?
     var showInstall = false
     private(set) var tmdbCredential: String?
+    private(set) var tvdbCredentials: TVDBCredentials?
+    private(set) var tvdbRevision = UUID()
+    @ObservationIgnored private var tvdbClient: TVDBClient
+    @ObservationIgnored private var tvdbCredentialRequest = UUID()
+    var metadataConfigurationRevision: String { tmdbRevision.uuidString + tvdbRevision.uuidString }
+    func hasMetadata(for item: MediaItem) -> Bool {
+        tmdbCredential != nil || (item.type == "series" && tvdbCredentials != nil)
+    }
     private(set) var tmdbRevision = UUID()
     @ObservationIgnored private var tmdbClient: TMDBClient
     @ObservationIgnored private var cacheUpdateTask: Task<Void, Never>?
@@ -92,6 +102,7 @@ final class AppStore {
         #endif
         client = AddonClient(cache: addonCache)
         tmdbClient = TMDBClient(cache: tmdbCache)
+        tvdbClient = TVDBClient(cache: tvdbCache)
         let saved: [InstalledAddon]
         do { saved = try SecureStorage.load(.addons) ?? [] } catch {
             saved = []
@@ -106,6 +117,10 @@ final class AppStore {
         AppPreferenceStorage.save(player)
         do { tmdbCredential = try SecureStorage.load(.tmdbCredential) } catch {
             tmdbCredential = nil
+            localStorageError = error.localizedDescription
+        }
+        do { tvdbCredentials = try SecureStorage.load(.tvdbCredentials) } catch {
+            tvdbCredentials = nil
             localStorageError = error.localizedDescription
         }
         do { heroCatalogID = try SecureStorage.load(.heroCatalog) ?? HeroCatalogSelection.automaticID } catch
@@ -253,6 +268,49 @@ final class AppStore {
         home.cancel()
     }
 
+    func saveTVDBCredentials(apiKey: String, pin: String) async throws {
+        let credentials = try TVDBCredentials(apiKey: apiKey, pin: pin)
+        let request = UUID()
+        tvdbCredentialRequest = request
+        let candidate = TVDBClient(cache: tvdbCache)
+        try await candidate.validate(credentials: credentials)
+        try Task.checkCancellation()
+        guard tvdbCredentialRequest == request else { throw CancellationError() }
+        try SecureStorage.save(credentials, for: .tvdbCredentials)
+        let previous = tvdbClient
+        tvdbClient = candidate
+        tvdbCredentials = credentials
+        tvdbRevision = UUID()
+        await previous.invalidate()
+    }
+
+    func removeTVDBCredentials() throws {
+        try SecureStorage.delete(.tvdbCredentials)
+        tvdbCredentialRequest = UUID()
+        tvdbCredentials = nil
+        let previous = tvdbClient
+        tvdbClient = TVDBClient(cache: tvdbCache)
+        tvdbRevision = UUID()
+        Task { await previous.invalidate() }
+    }
+
+    private func withTVDB<Result>(_ operation: (TVDBClient, TVDBCredentials) async throws -> Result)
+        async throws -> Result
+    {
+        guard !isClearingCache else { throw CancellationError() }
+        guard let credentials = tvdbCredentials else { throw TVDBError.invalidCredential }
+        let revision = metadataConfigurationRevision
+        let result = try await operation(tvdbClient, credentials)
+        try Task.checkCancellation()
+        guard !isClearingCache, metadataConfigurationRevision == revision else { throw CancellationError() }
+        return result
+    }
+
+    func tmdbPersonID(_ id: Int) async throws -> Int? {
+        guard tmdbCredential != nil, tvdbCredentials != nil else { return nil }
+        return try await withTVDB { try await $0.tmdbPersonID(id, credentials: $1) }
+    }
+
     func metadataRevision(for ids: [String?]) -> String {
         ids.compactMap { $0 }.sorted().compactMap { cacheVersions[$0]?.uuidString }.joined()
     }
@@ -267,10 +325,14 @@ final class AppStore {
         home.cancel()
         // Old requests keep their own client; they cannot refill the new client's memory.
         let previous = tmdbClient
+        let previousTVDB = tvdbClient
+        tvdbClient = TVDBClient(cache: tvdbCache)
         tmdbClient = TMDBClient(cache: tmdbCache)
+        tvdbRevision = UUID()
         var failed = false
         do { try await client.clearCache() } catch { failed = true }
         do { try await previous.clearCache() } catch { failed = true }
+        do { try await previousTVDB.clearCache() } catch { failed = true }
         await ArtworkPipeline.shared.clearCache()
         cacheVersions = [:]
         tmdbRevision = UUID()
@@ -330,9 +392,34 @@ final class AppStore {
         return result
     }
 
-    func enrichedMetadata(for item: MediaItem) async throws -> TMDBEnrichment? {
-        guard tmdbCredential != nil else { return nil }
-        return try await withTMDB { try await $0.enrichment(for: item, credential: $1) }
+    func enrichedMetadata(for item: MediaItem) async throws -> MetadataEnrichment? {
+        let revision = metadataConfigurationRevision
+        let loadTMDB: () async throws -> MetadataEnrichment? = {
+            guard self.tmdbCredential != nil else { return nil }
+            return try await self.withTMDB { try await $0.enrichment(for: item, credential: $1) }
+        }
+        let result: MetadataEnrichment?
+        if item.type == "series", tvdbCredentials != nil {
+            result = try await MetadataResolver.enrichment(
+                primary: {
+                    var identified = item
+                    if MediaIdentity.tvdbID(item) == nil,
+                        MediaIdentity.validIMDb(item.imdbID) == nil,
+                        MediaIdentity.validIMDb(item.id) == nil,
+                        let mapping = try await loadTMDB()
+                    {
+                        identified = mapping.applying(to: item)
+                    }
+                    return try await self.withTVDB {
+                        try await $0.enrichment(for: identified, credentials: $1)
+                    }
+                }, fallback: loadTMDB)
+        } else {
+            result = try await loadTMDB()
+        }
+        try Task.checkCancellation()
+        guard revision == metadataConfigurationRevision else { throw CancellationError() }
+        return result
     }
 
     func tmdbCatalog(_ catalog: TMDBCatalog, page: Int = 1) async throws -> TMDBPage {
@@ -347,18 +434,50 @@ final class AppStore {
         try await withTMDB { try await $0.filmography(personID: personID, credential: $1) }
     }
 
-    func episodes(for media: MediaItem, details: TMDBEnrichment, season: Int) async throws -> [Episode] {
-        try await withTMDB {
-            try await $0.episodes(for: media, tmdbID: details.id, season: season, credential: $1)
+    func episodes(for media: MediaItem, details: MetadataEnrichment, season: Int) async throws -> [Episode] {
+        let revision = metadataConfigurationRevision
+        if let id = details.tvdbID, tvdbCredentials != nil {
+            do {
+                let result = try await withTVDB {
+                    try await $0.episodes(for: media, id: id, season: season, credentials: $1)
+                }
+                if !result.isEmpty {
+                    if let tmdbID = details.tmdbID, tmdbCredential != nil,
+                        result.contains(where: {
+                            $0.thumbnail == nil || $0.overview == nil || $0.title == nil
+                        }),
+                        let backup = try? await withTMDB({
+                            try await $0.episodes(for: media, tmdbID: tmdbID, season: season, credential: $1)
+                        })
+                    {
+                        try Task.checkCancellation()
+                        guard revision == metadataConfigurationRevision else { throw CancellationError() }
+                        return MetadataResolver.episodes(result, fillingFrom: backup)
+                    }
+                    try Task.checkCancellation()
+                    guard revision == metadataConfigurationRevision else { throw CancellationError() }
+                    return result
+                }
+            } catch is CancellationError { throw CancellationError() } catch {
+                if details.tmdbID == nil || tmdbCredential == nil { throw error }
+            }
+        }
+        if let id = details.tmdbID, tmdbCredential != nil {
+            return try await withTMDB {
+                try await $0.episodes(for: media, tmdbID: id, season: season, credential: $1)
+            }
+        }
+        return (media.videos ?? []).filter { $0.season == season }
+    }
+
+    func recommendations(for details: MetadataEnrichment, page: Int = 1) async throws -> TMDBPage {
+        guard let id = details.tmdbID else { throw TMDBError.invalidResponse }
+        return try await withTMDB { api, credential in
+            try await api.recommendations(
+                tmdbID: id, mediaType: details.mediaType, page: page, credential: credential)
         }
     }
 
-    func recommendations(for details: TMDBEnrichment, page: Int = 1) async throws -> TMDBPage {
-        try await withTMDB { api, credential in
-            try await api.recommendations(
-                tmdbID: details.id, mediaType: details.mediaType, page: page, credential: credential)
-        }
-    }
     // MARK: - Home and source discovery
 
     func refresh() async {
@@ -371,8 +490,10 @@ final class AppStore {
     }
 
     func metadata(for item: MediaItem) async -> (MediaItem, String?) {
-        // TMDB owns movie/series metadata. Custom and live add-on IDs retain their provider details.
-        if item.id.hasPrefix("tmdb:") || item.id.range(of: "^tt[0-9]+$", options: .regularExpression) != nil {
+        // Known metadata identities load through the configured providers; custom IDs retain add-on details.
+        if item.id.hasPrefix("tmdb:") || item.id.hasPrefix("tvdb:")
+            || item.id.range(of: "^tt[0-9]+$", options: .regularExpression) != nil
+        {
             return (item, nil)
         }
         var failed = false

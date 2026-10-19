@@ -59,7 +59,7 @@ private struct ContinueWatchingCard: View {
     }
 
     private var revision: String {
-        record.media.key + store.tmdbRevision.uuidString
+        record.media.key + store.metadataConfigurationRevision
             + store.metadataRevision(for: [store.detailsCacheID(record.media)])
     }
 
@@ -136,9 +136,9 @@ private struct ContinueWatchingCard: View {
                 .accessibilityLabel("Options for \(media.name)")
         }
         .task(id: revision) {
-            let credentialRevision = store.tmdbRevision
+            let credentialRevision = store.metadataConfigurationRevision
             let prepared = await HeroPresentation.prepare(record.media, store: store)
-            guard !Task.isCancelled, credentialRevision == store.tmdbRevision else { return }
+            guard !Task.isCancelled, credentialRevision == store.metadataConfigurationRevision else { return }
             presentation = prepared
         }
     }

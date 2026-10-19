@@ -23,6 +23,16 @@ struct SettingsView: View {
                     }
                 }
                 NavigationLink {
+                    TVDBSettingsView()
+                } label: {
+                    HStack {
+                        Label("TVDB", systemImage: "tv")
+                        Spacer()
+                        Text(store.tvdbCredentials == nil ? "Not connected" : "Connected")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                NavigationLink {
                     TraktSettingsView()
                 } label: {
                     HStack {

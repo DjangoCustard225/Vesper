@@ -142,6 +142,7 @@ public struct MediaItem: Codable, Hashable, Identifiable, Sendable {
     public var imdbRating: String?
     public var imdbID: String?
     public var tmdbID: Int? = nil
+    public var tvdbID: Int? = nil
     public var tmdbRating: Double?
 
     public var playbackID: String { MediaIdentity.validIMDb(imdbID) ?? id }

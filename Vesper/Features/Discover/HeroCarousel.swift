@@ -34,7 +34,7 @@ struct HeroCarousel: View {
     @Binding var artworkSources: [String: ImmersiveArtworkSource]
     @State private var selectedID: String?
     @State private var presentations: [String: HeroPresentation] = [:]
-    @State private var presentationRevision: UUID?
+    @State private var presentationRevision: String?
 
     private var nearbyArtwork: [URL] {
         guard !items.isEmpty else { return [] }
@@ -52,7 +52,7 @@ struct HeroCarousel: View {
                 ForEach(items, id: \.key) { item in
                     FeaturedCard(
                         item: item,
-                        presentation: presentationRevision == store.tmdbRevision
+                        presentation: presentationRevision == store.metadataConfigurationRevision
                             ? presentations[item.key] : nil,
                         height: height, isLandscape: isLandscape, showsPageControl: items.count > 1
                     )
@@ -74,7 +74,7 @@ struct HeroCarousel: View {
             }
         }
         .task(
-            id: items.map(\.key).joined(separator: "|") + store.tmdbRevision.uuidString
+            id: items.map(\.key).joined(separator: "|") + store.metadataConfigurationRevision
                 + store.metadataRevision(for: items.map { store.detailsCacheID($0) })
         ) { await prepareTitles() }
         .prefetchArtwork(nearbyArtwork)
@@ -95,7 +95,7 @@ struct HeroCarousel: View {
     }
 
     private func prepareTitles() async {
-        let revision = store.tmdbRevision
+        let revision = store.metadataConfigurationRevision
         if presentationRevision != revision {
             presentations = [:]
             presentationRevision = revision
@@ -116,7 +116,7 @@ struct HeroCarousel: View {
                 if let item = remaining.next() { group.addTask { await prepare(item) } }
             }
             while let (key, presentation) = await group.next() {
-                guard !Task.isCancelled, store.tmdbRevision == revision else {
+                guard !Task.isCancelled, store.metadataConfigurationRevision == revision else {
                     group.cancelAll()
                     return
                 }

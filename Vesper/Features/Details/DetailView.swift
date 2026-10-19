@@ -31,7 +31,7 @@ struct DetailView: View {
 
     private var season: Int? { model.season }
 
-    private var enrichment: TMDBEnrichment? { model.enrichment }
+    private var enrichment: MetadataEnrichment? { model.enrichment }
 
     private var loading: Bool { model.loading }
 
@@ -39,7 +39,7 @@ struct DetailView: View {
 
     private var enriching: Bool { model.enriching }
 
-    private var tmdbError: String? { model.tmdbError }
+    private var metadataError: String? { model.metadataError }
 
     private var seasonLoading: Bool { model.seasonLoading }
 
@@ -105,11 +105,15 @@ struct DetailView: View {
                         if enriching {
                             ProgressView("Loading details…").font(.subheadline).frame(maxWidth: .infinity)
                         }
-                        if let tmdbError { ErrorNotice(message: tmdbError) { Task { await enrich() } } }
+                        if let metadataError {
+                            ErrorNotice(message: metadataError) { Task { await enrich() } }
+                        }
                         if !isLive && (media.type == "series" || !(media.videos ?? []).isEmpty) {
                             episodeSection
                         }
-                        if let enrichment { RelatedTitlesView(details: enrichment) }
+                        if let enrichment, enrichment.tmdbID != nil, store.tmdbCredential != nil {
+                            RelatedTitlesView(details: enrichment)
+                        }
                         if let cast = enrichment?.cast, !cast.isEmpty {
                             PeoplePortraitsView(people: cast, title: "Cast")
                         }
@@ -124,13 +128,13 @@ struct DetailView: View {
         .fontDesign(.default)
         .toolbar(.visible, for: .navigationBar)
         .toolbarBackground(.hidden, for: .navigationBar)
-        .task(id: item.key + store.tmdbRevision.uuidString) { await load() }
+        .task(id: item.key + store.metadataConfigurationRevision) { await load() }
         .task(id: store.metadataRevision(for: [store.detailsCacheID(media)])) {
             guard enrichment != nil else { return }
             await enrich()
         }
         .task(
-            id: "\(enrichment?.id ?? 0):\(season ?? -1):\(store.tmdbRevision):"
+            id: "\(enrichment?.reference.key ?? ""):\(season ?? -1):\(store.metadataConfigurationRevision):"
                 + store.metadataRevision(for: [
                     store.episodesCacheID(media, details: enrichment, season: season)
                 ])
@@ -205,7 +209,7 @@ struct DetailView: View {
     }
 
     private func load() async {
-        if store.tmdbCredential != nil {
+        if store.hasMetadata(for: item) {
             await model.load(
                 metadata: { await store.metadata(for: $0) },
                 enrich: { try await store.enrichedMetadata(for: $0) })
@@ -219,7 +223,7 @@ struct DetailView: View {
     }
 
     private func enrich() async {
-        guard store.tmdbCredential != nil else { return }
+        guard store.hasMetadata(for: item) else { return }
         await model.refreshEnrichment { try await store.enrichedMetadata(for: $0) }
         startRequestedPlayback()
     }
@@ -259,7 +263,7 @@ struct DetailView: View {
             if seasonLoading { ProgressView("Loading episodes…").frame(maxWidth: .infinity) }
             if let seasonError { ErrorNotice(message: seasonError) { Task { await loadSeason() } } }
             if episodes.isEmpty && !loading && !enriching && !seasonLoading && seasonError == nil {
-                Text("No episodes available. Connect TMDB in Settings to load movie and series details.")
+                Text("No episodes available. Connect TMDB or TVDB in Settings to load show details.")
                     .foregroundStyle(.secondary).font(.subheadline)
             }
             if !episodes.isEmpty {

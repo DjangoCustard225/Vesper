@@ -125,6 +125,7 @@ extension View {
 struct CachedArtworkImage<Content: View>: View {
     let url: URL?
     var fadesIn = false
+    var retainsPreviousImage = false
     @ViewBuilder let content: (AsyncImagePhase) -> Content
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var phase = AsyncImagePhase.empty
@@ -136,6 +137,7 @@ struct CachedArtworkImage<Content: View>: View {
         if let url, let image = ArtworkPipeline.shared.cachedImage(for: url) {
             return .success(Image(uiImage: image))
         }
+        if retainsPreviousImage, phase.image != nil { return phase }
         return .empty
     }
 
@@ -161,7 +163,7 @@ struct CachedArtworkImage<Content: View>: View {
             }
             withTransaction(Transaction(animation: nil)) {
                 loadedURL = url
-                phase = .empty
+                if !retainsPreviousImage || phase.image == nil { phase = .empty }
             }
             do {
                 let image = try await ArtworkPipeline.shared.image(for: url)
@@ -171,7 +173,7 @@ struct CachedArtworkImage<Content: View>: View {
                 }
             } catch {
                 guard !Task.isCancelled else { return }
-                phase = .failure(error)
+                if !retainsPreviousImage || phase.image == nil { phase = .failure(error) }
             }
         }
     }

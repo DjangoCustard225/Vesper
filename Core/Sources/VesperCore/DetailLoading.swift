@@ -20,9 +20,9 @@ public final class DetailLoadingController {
     public private(set) var loading = false
     public private(set) var error: String?
     public var season: Int?
-    public private(set) var enrichment: TMDBEnrichment?
+    public private(set) var enrichment: MetadataEnrichment?
     public private(set) var enriching = false
-    public private(set) var tmdbError: String?
+    public private(set) var metadataError: String?
     public private(set) var seasonLoading = false
     public private(set) var seasonError: String?
     public private(set) var seasonEpisodes: [Episode] = []
@@ -67,7 +67,7 @@ public final class DetailLoadingController {
 
     public func load(
         metadata: @MainActor (MediaItem) async -> (MediaItem, String?),
-        enrich: (@MainActor (MediaItem) async throws -> TMDBEnrichment?)? = nil
+        enrich: (@MainActor (MediaItem) async throws -> MetadataEnrichment?)? = nil
     ) async {
         generation = UUID()
         let current = generation
@@ -76,7 +76,7 @@ public final class DetailLoadingController {
         full = nil
         enrichment = nil
         enriching = false
-        tmdbError = nil
+        metadataError = nil
         enrichmentRequestID = UUID()
         seasonRequestID = UUID()
         seasonEpisodes = []
@@ -94,12 +94,14 @@ public final class DetailLoadingController {
         if let enrich { await refreshEnrichment(using: enrich) }
     }
 
-    public func refreshEnrichment(using fetch: @MainActor (MediaItem) async throws -> TMDBEnrichment?) async {
+    public func refreshEnrichment(using fetch: @MainActor (MediaItem) async throws -> MetadataEnrichment?)
+        async
+    {
         guard media.type == "movie" || media.type == "series" else { return }
         let current = generation, request = UUID(), original = media
         enrichmentRequestID = request
         enriching = true
-        tmdbError = nil
+        metadataError = nil
         do {
             let result = try await fetch(original)
             guard !Task.isCancelled, generation == current, enrichmentRequestID == request else { return }
@@ -112,7 +114,7 @@ public final class DetailLoadingController {
             }
         } catch is CancellationError { return } catch {
             if generation == current && enrichmentRequestID == request {
-                tmdbError = error.localizedDescription
+                metadataError = error.localizedDescription
             }
         }
         if generation == current && enrichmentRequestID == request { enriching = false }
@@ -120,7 +122,7 @@ public final class DetailLoadingController {
 
     public func loadSeason(
         preserveExisting: Bool = false,
-        fetch: @MainActor (MediaItem, TMDBEnrichment, Int) async throws -> [Episode]
+        fetch: @MainActor (MediaItem, MetadataEnrichment, Int) async throws -> [Episode]
     ) async {
         let current = generation, request = UUID()
         seasonRequestID = request
@@ -132,7 +134,7 @@ public final class DetailLoadingController {
         do {
             let videos = try await fetch(media, enrichment, season)
             guard !Task.isCancelled, generation == current, seasonRequestID == request,
-                self.season == season, self.enrichment?.id == enrichment.id
+                self.season == season, self.enrichment?.reference == enrichment.reference
             else { return }
             seasonEpisodes = videos
         } catch is CancellationError { return } catch {
@@ -153,7 +155,8 @@ public final class DetailLoadingController {
     }
 
     public func requestedPlayback() -> DetailPlaybackChoice? {
-        guard startPlayback, !didStartPlayback, !loading, !enriching, error == nil, tmdbError == nil else {
+        guard startPlayback, !didStartPlayback, !loading, !enriching, error == nil, metadataError == nil
+        else {
             return nil
         }
         #if !VESPER_GO

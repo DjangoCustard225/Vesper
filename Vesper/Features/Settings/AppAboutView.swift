@@ -31,6 +31,12 @@ struct CreditsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 TMDBAttribution()
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("TheTVDB").font(.headline)
+                    Text("Optional TV show metadata and artwork provided by TheTVDB.")
+                        .foregroundStyle(.secondary)
+                    Link("TheTVDB", destination: URL(string: "https://thetvdb.com")!)
+                }
                 #if !VESPER_GO
                 VStack(alignment: .leading, spacing: 12) {
                     Text("MPVKit").font(.headline)

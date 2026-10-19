@@ -23,8 +23,8 @@ private actor DetailGate {
             overview: nil, thumbnail: nil, released: nil, streams: nil, runtimeMinutes: nil)
     }
 
-    private func details() -> TMDBEnrichment {
-        TMDBEnrichment(
+    private func details() -> MetadataEnrichment {
+        MetadataEnrichment(
             id: 42, mediaType: "tv", overview: nil, tagline: nil, posterURL: nil,
             backdropURL: nil, titleLogoURL: nil, releaseYear: nil, runtimeMinutes: nil,
             genres: [], cast: [], directors: [], directorPeople: [], crew: nil,

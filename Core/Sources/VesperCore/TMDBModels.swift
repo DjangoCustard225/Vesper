@@ -16,67 +16,6 @@ public enum TMDBError: LocalizedError, Equatable {
     }
 }
 
-public struct CastMember: Codable, Hashable, Identifiable, Sendable {
-    public let id: Int
-    public let name: String
-    public let character: String?
-    public let portraitURL: String?
-
-    public var website: URL { URL(string: "https://www.themoviedb.org/person/\(id)")! }
-}
-
-public struct CrewMember: Codable, Hashable, Identifiable, Sendable {
-    public let id: Int
-    public let name: String
-    public let jobs: [String]
-    public let portraitURL: String?
-
-    public var website: URL { URL(string: "https://www.themoviedb.org/person/\(id)")! }
-}
-
-public struct TMDBEnrichment: Codable, Hashable, Sendable {
-    public let id: Int
-    public let mediaType: String
-    public let overview: String?
-    public let tagline: String?
-    public let posterURL: String?
-    public let backdropURL: String?
-    public let titleLogoURL: String?
-    public let releaseYear: String?
-    public let runtimeMinutes: Int?
-    public let genres: [String]
-    public let cast: [CastMember]
-    public let directors: [String]
-    public let directorPeople: [CastMember]
-    public let crew: [CrewMember]?
-    public let creators: [String]
-    public let rating: Double?
-    public let voteCount: Int?
-    public let imdbID: String?
-    public let seasons: [Int]
-
-    public var website: URL { URL(string: "https://www.themoviedb.org/\(mediaType)/\(id)")! }
-
-    public func applying(to item: MediaItem) -> MediaItem {
-        var enriched = item
-        if let imdbID { enriched.imdbID = imdbID }
-        enriched.tmdbID = id
-        enriched.tmdbRating = rating
-        if let overview, !overview.isEmpty { enriched.description = overview }
-        if let posterURL { enriched.poster = posterURL }
-        if let backdropURL { enriched.background = backdropURL }
-        if let releaseYear, item.type == "movie" || item.releaseInfo?.isEmpty != false {
-            enriched.releaseInfo = releaseYear
-        }
-        if let runtimeMinutes, runtimeMinutes > 0 { enriched.runtime = "\(runtimeMinutes) min" }
-        if !genres.isEmpty { enriched.genres = genres }
-        if !cast.isEmpty { enriched.cast = cast.map(\.name) }
-        if !directors.isEmpty { enriched.director = directors }
-        // Preserve the add-on's ID, type, episode list, default video ID and IMDb rating.
-        return enriched
-    }
-}
-
 public enum TMDBCatalog: String, CaseIterable, Identifiable, Sendable {
     case popularMovies, popularSeries, topRatedMovies, topRatedSeries
 

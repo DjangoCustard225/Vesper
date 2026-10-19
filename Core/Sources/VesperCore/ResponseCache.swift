@@ -71,10 +71,14 @@ public actor ResponseCache {
         try? removeAll()
     }
 
-    public func removeAll() throws {
+    public func cancelRefreshes() {
         generation = UUID()
         for task in refreshes.values { task.cancel() }
         refreshes = [:]
+    }
+
+    public func removeAll() throws {
+        cancelRefreshes()
         index = nil
         byteCount = 0
         if FileManager.default.fileExists(atPath: directory.path) {

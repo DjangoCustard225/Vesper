@@ -3,7 +3,7 @@ import VesperCore
 
 struct RelatedTitlesView: View {
     @Environment(AppStore.self) private var store
-    let details: TMDBEnrichment
+    let details: MetadataEnrichment
     @State private var model = CatalogController()
 
     var body: some View {
@@ -23,7 +23,7 @@ struct RelatedTitlesView: View {
                 }.padding(.horizontal, -24)
             }
         }
-        .task(id: "\(details.mediaType):\(details.id):\(store.tmdbRevision)") {
+        .task(id: "\(details.mediaType):\(details.tmdbID ?? 0):\(store.tmdbRevision)") {
             await model.load(store.relatedSource(details))
         }
         .onChange(of: store.cacheChanges) { _, change in model.refresh(cacheIDs: change.ids) }

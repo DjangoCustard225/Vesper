@@ -48,6 +48,8 @@ For Dolby Vision and HDR playback, choose AVPlayer.
 
 If you use Vesper or Vesper Go in LiveContainer, enable **Settings → Video Player → Show all external players**.
 
+For optional TV show metadata, add your TVDB API key and subscriber PIN if required in **Settings → TVDB**. TVDB becomes preferred for shows with TMDB as a fallback. Some keys require a [TVDB subscription](https://thetvdb.com/subscribe).
+
 Connect Trakt in **Settings → Trakt** to import watch history and sync watched status. Playback in Vesper’s built-in players is reported to Trakt. External playback isn’t tracked.
 
 Vesper needs providers with playable web streams. It doesn’t support torrent downloads.

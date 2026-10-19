@@ -18,7 +18,7 @@ public actor TMDBClient {
     private let diskCache: ResponseCache?
     private var activeCredential: String?
     private var configuration: TMDBConfiguration?
-    private var cache = ExpiringCache<TMDBEnrichment>(lifetime: 6 * 3600, capacity: 100)
+    private var cache = ExpiringCache<MetadataEnrichment>(lifetime: 6 * 3600, capacity: 100)
     private var requests = SharedRequestPool<Data?>()
     private var listingCache = ExpiringCache<TMDBPage>(lifetime: 300, capacity: 100)
     private var seasonCache = ExpiringCache<TMDBSeasonResponse>(lifetime: 6 * 3600, capacity: 50)
@@ -212,7 +212,7 @@ public actor TMDBClient {
     }
 
     public func enrichment(for item: MediaItem, credential input: String, refresh: Bool = false) async throws
-        -> TMDBEnrichment?
+        -> MetadataEnrichment?
     {
         guard item.type == "movie" || item.type == "series" else { return nil }
         let type = item.type == "movie" ? "movie" : "tv"
@@ -223,7 +223,7 @@ public actor TMDBClient {
         let diskKey = MetadataCacheKey.details(item, credential: credential)
         if !refresh, let value = cache.value(for: item.key) { return value }
         if !refresh, let diskCache,
-            let cached = await diskCache.value(TMDBEnrichment.self, key: diskKey, ttl: 6 * 3600)
+            let cached = await diskCache.value(MetadataEnrichment.self, key: diskKey, ttl: 6 * 3600)
         {
             if !cached.isFresh {
                 await diskCache.refresh(key: diskKey) { [self] in

@@ -42,28 +42,36 @@ extension AppStore {
         }
     }
 
-    func relatedSource(_ details: TMDBEnrichment) -> ContentSource {
+    func relatedSource(_ details: MetadataEnrichment) -> ContentSource {
         let credential = tmdbCredential, revision = tmdbRevision
         let initialCacheID = credential.flatMap {
             try? MetadataCacheKey.recommendations(
-                id: details.id, type: details.mediaType, page: 1, credential: $0)
+                id: details.tmdbID ?? 0, type: details.mediaType, page: 1, credential: $0)
         }.map(MetadataCacheKey.id)
         return ContentSource(initialCacheID: initialCacheID) { cursor in
             guard let credential, self.tmdbRevision == revision else { throw CancellationError() }
             let result = try await self.recommendations(for: details, page: cursor)
             let key = try MetadataCacheKey.recommendations(
-                id: details.id, type: details.mediaType, page: cursor, credential: credential)
+                id: details.tmdbID ?? 0, type: details.mediaType, page: cursor, credential: credential)
             return ContentPage(items: result.items, cacheID: MetadataCacheKey.id(key))
         }
     }
 
     func detailsCacheID(_ item: MediaItem) -> String? {
-        tmdbCredential.map { MetadataCacheKey.id(MetadataCacheKey.details(item, credential: $0)) }
+        if item.type == "series", let credentials = tvdbCredentials {
+            return MetadataCacheKey.id(TVDBClient.detailsKey(item, credentials: credentials))
+        }
+        return tmdbCredential.map { MetadataCacheKey.id(MetadataCacheKey.details(item, credential: $0)) }
     }
 
-    func episodesCacheID(_ item: MediaItem, details: TMDBEnrichment?, season: Int?) -> String? {
-        guard let credential = tmdbCredential, let details, let season else { return nil }
+    func episodesCacheID(_ item: MediaItem, details: MetadataEnrichment?, season: Int?) -> String? {
+        guard let details, let season else { return nil }
+        if let id = details.tvdbID, let credentials = tvdbCredentials {
+            return MetadataCacheKey.id(
+                TVDBClient.episodesKey(id: id, season: season, credentials: credentials))
+        }
+        guard let credential = tmdbCredential, let id = details.tmdbID else { return nil }
         return MetadataCacheKey.id(
-            MetadataCacheKey.episodes(item, id: details.id, season: season, credential: credential))
+            MetadataCacheKey.episodes(item, id: id, season: season, credential: credential))
     }
 }

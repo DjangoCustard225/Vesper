@@ -120,7 +120,7 @@ struct TMDBDetails: Decodable {
     let seasons: [Season]?
     let images: Images?
 
-    func enrichment(type: String, configuration: TMDBConfiguration) -> TMDBEnrichment {
+    func enrichment(type: String, configuration: TMDBConfiguration) -> MetadataEnrichment {
         let credits = type == "tv" ? aggregateCredits : credits
         var seen = Set<Int>()
         let cast = (credits?.cast ?? []).filter { !$0.name.isEmpty && seen.insert($0.id).inserted }.prefix(40)
@@ -195,7 +195,7 @@ struct TMDBDetails: Decodable {
 
             return prefix.count == 4 && Int(prefix) != nil ? prefix : nil
         }
-        return TMDBEnrichment(
+        return MetadataEnrichment(
             id: id, mediaType: type, overview: overview, tagline: tagline,
             posterURL: configuration.image(
                 posterPath, sizes: configuration.images.posterSizes, preferred: "w500"),

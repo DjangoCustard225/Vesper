@@ -17,12 +17,22 @@ public enum MediaIdentity {
         return number
     }
 
+    public static func tvdbID(_ item: MediaItem) -> Int? {
+        if let id = item.tvdbID, id > 0 { return id }
+        let parts = item.id.split(separator: ":")
+        guard item.type == "series", parts.count == 2, parts.first == "tvdb",
+            let id = Int(parts[1]), id > 0
+        else { return nil }
+        return id
+    }
+
     public static func aliases(_ item: MediaItem) -> Set<String> {
         var values: Set<String> = [item.type + ":raw:" + item.id]
         if let imdb = validIMDb(item.imdbID) ?? validIMDb(item.id) {
             values.insert(item.type + ":imdb:" + imdb)
         }
         if let tmdb = tmdbID(item) { values.insert(item.type + ":tmdb:" + String(tmdb)) }
+        if let tvdb = tvdbID(item) { values.insert(item.type + ":tvdb:" + String(tvdb)) }
         return values
     }
     /// Exact IDs only. A matching name or year is never sufficient to merge titles.
@@ -56,6 +66,7 @@ public enum MediaIdentity {
                     validIMDb(first.imdbID) ?? validIMDb(first.id) ?? validIMDb(item.imdbID)
                     ?? validIMDb(item.id)
                 first.tmdbID = tmdbID(first) ?? tmdbID(item)
+                first.tvdbID = tvdbID(first) ?? tvdbID(item)
                 first.poster = first.poster ?? item.poster
 
                 first.background = first.background ?? item.background

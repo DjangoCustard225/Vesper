@@ -15,6 +15,10 @@ final class SessionOwnershipTests: XCTestCase {
         try await checkBorrowedSession { TMDBClient(session: $0) }
     }
 
+    func testReleasingTVDBClientLeavesBorrowedSessionUsable() async throws {
+        try await checkBorrowedSession { TVDBClient(session: $0) }
+    }
+
     func testReleasingArtworkClientLeavesBorrowedSessionUsable() async throws {
         try await checkBorrowedSession { ArtworkDataClient(session: $0) }
     }

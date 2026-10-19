@@ -459,12 +459,13 @@ extension TMDBTests {
         let details = try decoder.decode(TMDBDetails.self, from: Data(movie.utf8))
         let enrichment = details.enrichment(type: "movie", configuration: configuration)
         XCTAssertEqual(
-            try JSONDecoder().decode(TMDBEnrichment.self, from: JSONEncoder().encode(enrichment)), enrichment)
+            try JSONDecoder().decode(MetadataEnrichment.self, from: JSONEncoder().encode(enrichment)),
+            enrichment)
         var legacy = try XCTUnwrap(
             JSONSerialization.jsonObject(with: JSONEncoder().encode(enrichment)) as? [String: Any])
         legacy.removeValue(forKey: "crew")
         let decoded = try JSONDecoder().decode(
-            TMDBEnrichment.self, from: JSONSerialization.data(withJSONObject: legacy))
+            MetadataEnrichment.self, from: JSONSerialization.data(withJSONObject: legacy))
         XCTAssertNil(decoded.crew)
         XCTAssertEqual(decoded.directors, ["Director Name"])
         XCTAssertEqual(decoded.directorPeople.count, 1)

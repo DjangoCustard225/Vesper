@@ -103,7 +103,7 @@ struct DiscoverView: View {
             heroPage = 0
             heroArtwork = [:]
         }
-        .onChange(of: store.tmdbRevision) { _, _ in heroArtwork = [:] }
+        .onChange(of: store.metadataConfigurationRevision) { _, _ in heroArtwork = [:] }
     }
 }
 

@@ -3,7 +3,10 @@ import VesperCore
 
 struct PeoplePortraitsView: View {
     private struct Person: Identifiable {
-        let id: Int
+        let id: String
+        let sourceID: Int
+        let tmdbID: Int?
+        let website: URL
         let name: String
         let subtitle: String?
         let portraitURL: URL
@@ -23,7 +26,9 @@ struct PeoplePortraitsView: View {
         self.isCrew = false
         self.people = people.compactMap { person in
             guard let portrait = person.portraitURL.flatMap({ try? AddonURL.http($0) }) else { return nil }
-            return Person(id: person.id, name: person.name, subtitle: person.character, portraitURL: portrait)
+            return Person(
+                id: person.reference.key, sourceID: person.id, tmdbID: person.tmdbID, website: person.website,
+                name: person.name, subtitle: person.character, portraitURL: portrait)
         }
     }
 
@@ -34,7 +39,8 @@ struct PeoplePortraitsView: View {
         self.people = crew.compactMap { person in
             guard let portrait = person.portraitURL.flatMap({ try? AddonURL.http($0) }) else { return nil }
             return Person(
-                id: person.id, name: person.name,
+                id: person.reference.key, sourceID: person.id, tmdbID: person.tmdbID, website: person.website,
+                name: person.name,
                 subtitle: person.jobs.isEmpty ? nil : person.jobs.joined(separator: " · "),
                 portraitURL: portrait)
         }
@@ -49,10 +55,16 @@ struct PeoplePortraitsView: View {
                     if isCrew {
                         CrewDetailsSheet(person: person)
                             .presentationDetents([.medium, .large]).presentationDragIndicator(.visible)
-                    } else {
+                    } else if let id = person.tmdbID {
                         ActorFilmographySheet(
-                            personID: person.id, name: person.name, portraitURL: person.portraitURL
+                            personID: id, name: person.name, portraitURL: person.portraitURL
                         ) { item in
+                            guard selectedPerson != nil else { return }
+                            pendingTitle = item
+                            selectedPerson = nil
+                        }.presentationDetents([.large]).presentationDragIndicator(.visible)
+                    } else {
+                        TVDBActorSheet(person: person) { item in
                             guard selectedPerson != nil else { return }
                             pendingTitle = item
                             selectedPerson = nil
@@ -111,9 +123,31 @@ struct PeoplePortraitsView: View {
         }.frame(width: 110, alignment: .topLeading).contentShape(Rectangle())
     }
 
+    private struct TVDBActorSheet: View {
+        @Environment(AppStore.self) private var store
+        let person: Person
+        let select: (MediaItem) -> Void
+        @State private var tmdbID: Int?
+
+        var body: some View {
+            Group {
+                if let tmdbID {
+                    ActorFilmographySheet(
+                        personID: tmdbID, name: person.name,
+                        portraitURL: person.portraitURL, onSelect: select)
+                } else {
+                    CrewDetailsSheet(person: person, title: "Cast")
+                }
+            }.task(id: person.id + store.metadataConfigurationRevision) {
+                tmdbID = try? await store.tmdbPersonID(person.sourceID)
+            }
+        }
+    }
+
     private struct CrewDetailsSheet: View {
         @Environment(\.dismiss) private var dismiss
         let person: Person
+        var title = "Crew"
 
         var body: some View {
             NavigationStack {
@@ -130,8 +164,9 @@ struct PeoplePortraitsView: View {
                         if let roles = person.subtitle {
                             Text(roles).font(.body).foregroundStyle(.secondary).textSelection(.enabled)
                         }
+                        Link("View profile", destination: person.website)
                     }.multilineTextAlignment(.center).frame(maxWidth: .infinity).padding(24)
-                }.appScrollEdges().navigationTitle("Crew").navigationBarTitleDisplayMode(.inline)
+                }.appScrollEdges().navigationTitle(title).navigationBarTitleDisplayMode(.inline)
                     .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             }.fontDesign(.default)
         }
