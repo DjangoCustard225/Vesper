@@ -6,6 +6,7 @@
 !/README.md
 !/Package.swift
 !/xtool.yml
+!/codemagic.yaml
 !/Vesper/
 !/Core/
 !/Dependencies/

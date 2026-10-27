@@ -1,0 +1,33 @@
+# yaml-language-server: $schema=https://codemagic.io/codemagic-schema.json
+workflows:
+  vesper-ios:
+    name: Vesper IPA
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    environment:
+      xcode: "27.1"
+      vars:
+        XDG_CACHE_HOME: /tmp/vesper-cache
+    cache:
+      cache_paths:
+        - /tmp/vesper-cache/aether
+    scripts:
+      - name: Check toolchain
+        script: |
+          set -euo pipefail
+          xcodebuild -version
+          swift --version
+          xcrun --sdk iphoneos --show-sdk-version
+          python3 --version
+      - name: Render native icon appearances
+        script: bash Scripts/RenderIconPreviews.sh
+      - name: Verify and build unsigned IPA
+        script: |
+          set -euo pipefail
+          mkdir -p xtool
+          bash Scripts/Verify.sh 2>&1 | tee xtool/build.log
+    artifacts:
+      - xtool/Vesper.ipa
+      - xtool/build.log
+      - xtool/icon-previews/*.png
+      - .build/xcode/Vesper/Vesper.xcarchive/dSYMs/*.dSYM
