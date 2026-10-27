@@ -25,10 +25,8 @@ final class EpisodeWatchedTests: XCTestCase {
         XCTAssertTrue(history.isWatched(show, episode: episode(2)))
         XCTAssertFalse(history.isWatched(show))
         XCTAssertTrue(history.isValid)
-        #if !VESPER_GO
         XCTAssertTrue(history.continueWatching.isEmpty)
         XCTAssertEqual(history.resumePosition(for: show, videoID: episode(1).id), 0)
-        #endif
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let repository = WatchProgressRepository(url: directory.appendingPathComponent("watched.json"))
@@ -48,9 +46,7 @@ final class EpisodeWatchedTests: XCTestCase {
         let original = MediaItem(id: "tmdb:tv:42", type: "series", name: "Show")
         let custom = episode(2, id: "provider-file", season: 0)
         var history = WatchProgress()
-        #if !VESPER_GO
         history.record(media: enriched, videoID: custom.id, subtitle: nil, elapsed: 50, duration: 100)
-        #endif
         history.setWatched(true, for: enriched, episode: custom)
         XCTAssertEqual(history.records.count, 1)
         XCTAssertEqual(history.records.first?.videoID, "tt123:0:2")

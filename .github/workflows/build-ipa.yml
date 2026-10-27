@@ -1,4 +1,4 @@
-name: Build IPAs
+name: Build IPA
 
 on:
   workflow_dispatch:
@@ -17,17 +17,9 @@ concurrency:
 
 jobs:
   build:
-    name: ${{ matrix.app }}
+    name: Vesper
     runs-on: xcode-27
     timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - edition: vesper
-            app: Vesper
-          - edition: go
-            app: VesperGo
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.app/Contents/Developer
       XDG_CACHE_HOME: /tmp/vesper-cache
@@ -43,46 +35,44 @@ jobs:
           xcrun --sdk iphoneos --show-sdk-version
           python3 --version
       - name: Cache pinned player downloads
-        if: matrix.edition == 'vesper'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.XDG_CACHE_HOME }}
           key: vesper-players-xcode27-${{ hashFiles('Dependencies/**/artifacts.json', 'Scripts/Prepare*.py') }}
       - name: Render native icon appearances
-        if: matrix.edition == 'vesper'
         run: bash Scripts/RenderIconPreviews.sh
       - name: Verify and build unsigned IPA
         shell: bash
         run: |
           mkdir -p xtool
-          bash Scripts/Verify.sh '${{ matrix.edition }}' 2>&1 | tee xtool/build.log
+          bash Scripts/Verify.sh vesper 2>&1 | tee xtool/build.log
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ matrix.app }}-build-log
+          name: Vesper-build-log
           path: xtool/build.log
           if-no-files-found: warn
           retention-days: 7
       - name: Upload IPA and checksum
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ matrix.app }}
+          name: Vesper
           path: |
-            xtool/${{ matrix.app }}.ipa
-            xtool/${{ matrix.app }}.sha256
+            xtool/Vesper.ipa
+            xtool/Vesper.sha256
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
       - name: Upload matching debug symbols
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: ${{ matrix.app }}-symbols
-          path: .build/xcode/${{ matrix.app }}/${{ matrix.app }}.xcarchive/dSYMs
+          name: Vesper-symbols
+          path: .build/xcode/Vesper/Vesper.xcarchive/dSYMs
           if-no-files-found: error
           retention-days: 14
       - name: Upload icon previews
-        if: matrix.edition == 'vesper' && !cancelled()
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: Vesper-icon-previews

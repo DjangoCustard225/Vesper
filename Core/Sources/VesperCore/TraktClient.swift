@@ -179,7 +179,6 @@ public actor TraktClient {
         throw TraktError.historyLimitReached
     }
 
-    #if !VESPER_GO
     public func scrobble(
         _ action: TraktScrobbleAction, media: MediaItem, videoID: String, progress: Double
     ) async throws {
@@ -198,11 +197,9 @@ public actor TraktClient {
             // Trakt intentionally ignores stops below one percent.
         }
     }
-    #endif
 
     public func apply(_ change: TraktHistoryChange) async throws {
         let title = try await resolve(change.media, videoID: change.videoID)
-        #if !VESPER_GO
         if change.action == .stopped, let progress = change.progress,
             Date().timeIntervalSince(change.date) < 300
         {
@@ -211,7 +208,6 @@ public actor TraktClient {
                 progress: progress)
             return
         }
-        #endif
         // Reconcile a queued addition before retrying: /sync/history does not deduplicate timestamps.
         if change.watched, try await alreadyApplied(change, title: title) { return }
         struct Item: Encodable { let ids: TraktIDs; let watched_at: String? }
@@ -241,7 +237,6 @@ public actor TraktClient {
                 Progress.self, await request("shows/\(id)/progress/watched?specials=false"))
             return value.aired > 0 && value.completed >= value.aired
         }
-        #if !VESPER_GO
         var path = "sync/history/\(title.collection)/\(id)?limit=1"
         if change.action == .stopped {
             var components = URLComponents()
@@ -251,9 +246,6 @@ public actor TraktClient {
             ]
             path += "&" + (components.percentEncodedQuery ?? "")
         }
-        #else
-        let path = "sync/history/\(title.collection)/\(id)?limit=1"
-        #endif
         struct History: Decodable { let id: Int64 }
         return !(try decode([History].self, await request(path))).isEmpty
     }
@@ -310,7 +302,6 @@ public actor TraktClient {
         return (season, episode)
     }
 
-    #if !VESPER_GO
     private func scrobbleBody(_ title: ResolvedTitle, progress: Double) throws -> Data {
         struct Item: Encodable { let ids: TraktIDs }
         struct Body: Encodable {
@@ -324,7 +315,6 @@ public actor TraktClient {
                 movie: title.kind == "movie" ? Item(ids: title.ids) : nil,
                 episode: title.kind == "episode" ? Item(ids: title.ids) : nil))
     }
-    #endif
 
     private func accessToken(force: Bool = false, replacing: String? = nil) async throws -> TraktTokens {
         if let pendingRotation {
@@ -408,7 +398,6 @@ public actor TraktClient {
         request.setValue("2", forHTTPHeaderField: "trakt-api-version")
         request.setValue("Vesper", forHTTPHeaderField: "User-Agent")
         if let token { request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization") }
-        #if !VESPER_GO
         let operation: NetworkOperation
         switch path {
         case "scrobble/start": operation = .traktScrobbleStart
@@ -416,9 +405,6 @@ public actor TraktClient {
         case "scrobble/stop": operation = .traktScrobbleStop
         default: operation = .trakt
         }
-        #else
-        let operation: NetworkOperation = .trakt
-        #endif
         return try await transport.data(for: request, operation: operation)
     }
 

@@ -14,7 +14,6 @@ final class TraktStore {
     var syncHistory: Bool {
         didSet { UserDefaults.standard.set(syncHistory, forKey: "traktSyncHistory") }
     }
-    #if !VESPER_GO
     private(set) var scrobbleError: String?
     @ObservationIgnored private let scrobbleDelivery = TraktScrobbleDelivery()
     var scrobbling: Bool {
@@ -23,7 +22,6 @@ final class TraktStore {
             if !scrobbling { scrobbleDelivery.cancel(); scrobbleError = nil }
         }
     }
-    #endif
     @ObservationIgnored private let client: TraktClient
     @ObservationIgnored private let repository: TraktStateRepository
     @ObservationIgnored private var writable = true
@@ -43,9 +41,7 @@ final class TraktStore {
 
     init() {
         syncHistory = UserDefaults.standard.object(forKey: "traktSyncHistory") as? Bool ?? true
-        #if !VESPER_GO
         scrobbling = UserDefaults.standard.object(forKey: "traktScrobbling") as? Bool ?? true
-        #endif
         let repository = TraktStateRepository(
             url: LibraryStorage.url.deletingLastPathComponent().appendingPathComponent("trakt-sync.json"))
         self.repository = repository
@@ -71,10 +67,8 @@ final class TraktStore {
     func startSignIn(history: WatchProgressController) {
         guard !isAuthorizing, writable else { return }
         syncTask?.task.cancel()
-        #if !VESPER_GO
         scrobbleDelivery.cancel()
         scrobbleError = nil
-        #endif
         retryTask?.cancel()
         generation = UUID()
         error = nil
@@ -168,10 +162,8 @@ final class TraktStore {
     func disconnect(history: WatchProgressController) async {
         cancelSignIn()
         syncTask?.task.cancel()
-        #if !VESPER_GO
         scrobbleDelivery.cancel()
         scrobbleError = nil
-        #endif
         retryTask?.cancel()
         generation = UUID()
         do {
@@ -217,9 +209,7 @@ final class TraktStore {
             }
             do {
                 // A queued stop must never overtake its corresponding start or pause event.
-                #if !VESPER_GO
                 await scrobbleDelivery.flush()
-                #endif
                 try Task.checkCancellation()
                 try await establishAccount(history: history, revision: revision)
                 var changed = false
@@ -233,9 +223,7 @@ final class TraktStore {
                     try Task.checkCancellation()
                     guard generation == revision else { return }
                     try acknowledge(change.id)
-                    #if !VESPER_GO
                     if change.action == .stopped { scrobbleError = nil }
-                    #endif
                     changed = true
                 }
                 if syncHistory {
@@ -291,9 +279,7 @@ final class TraktStore {
     }
 
     private func eligible(_ change: TraktHistoryChange) -> Bool {
-        #if !VESPER_GO
         if change.action == .stopped { return scrobbling }
-        #endif
         return syncHistory
     }
 
@@ -339,7 +325,6 @@ final class TraktStore {
         }
     }
 
-    #if !VESPER_GO
     func receive(
         _ event: TraktScrobbleEvent, media: MediaItem, videoID: String, history: WatchProgressController
     ) {
@@ -390,5 +375,4 @@ final class TraktStore {
             }
         }
     }
-    #endif
 }

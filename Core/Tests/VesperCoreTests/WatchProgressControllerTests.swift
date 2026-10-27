@@ -19,11 +19,13 @@ final class WatchProgressControllerTests: XCTestCase {
             controller.setWatched(true, for: second)
             await controller.flush()
             XCTAssertTrue(controller.state.isWatched(movie))
+            XCTAssertTrue(controller.isWatched(movie))
             XCTAssertTrue(controller.state.isWatched(second))
             XCTAssertEqual(try repository.load().state.records.count, 2)
             controller.setWatched(false, for: movie)
             await controller.flush()
             XCTAssertFalse(controller.state.isWatched(movie))
+            XCTAssertFalse(controller.isWatched(movie))
             XCTAssertTrue(controller.state.isWatched(second))
         }
     }
@@ -37,6 +39,7 @@ final class WatchProgressControllerTests: XCTestCase {
             controller.setWatched(true, for: movie)
             await controller.flush()
             XCTAssertFalse(controller.state.isWatched(movie))
+            XCTAssertFalse(controller.isWatched(movie))
             XCTAssertNotNil(controller.error)
             XCTAssertFalse(FileManager.default.fileExists(atPath: repository.url.path))
         }
@@ -87,6 +90,7 @@ final class WatchProgressControllerTests: XCTestCase {
             try Data("damaged".utf8).write(to: repository.url)
             let controller = WatchProgressController(repository: repository)
             XCTAssertTrue(controller.state.isWatched(movie))
+            XCTAssertTrue(controller.isWatched(movie))
             XCTAssertNotNil(controller.error)
         }
     }

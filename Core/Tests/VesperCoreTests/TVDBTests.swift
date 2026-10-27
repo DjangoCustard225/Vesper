@@ -375,6 +375,7 @@ final class TVDBTests: XCTestCase {
             [episode("provider", number: 1, title: "TVDB", image: nil)],
             fillingFrom: [
                 episode("other", number: 1, title: "TMDB", image: "image"),
+                episode("duplicate", number: 1, title: "Duplicate", image: "wrong-image"),
                 episode("unrelated", number: 2, title: nil, image: nil),
             ])
         XCTAssertEqual(episodes.count, 1)

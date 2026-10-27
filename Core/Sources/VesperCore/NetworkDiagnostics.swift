@@ -2,9 +2,8 @@ import Foundation
 
 public enum NetworkOperation: String, Codable, Sendable {
     case tmdb, tvdb, trakt, manifest, catalog, metadata, streams, artwork
-    #if !VESPER_GO
+    case introSegments
     case traktScrobbleStart, traktScrobblePause, traktScrobbleStop
-    #endif
 
     public init(from decoder: Decoder) throws {
         let value = try decoder.singleValueContainer().decode(String.self)
@@ -20,6 +19,17 @@ public enum NetworkOperation: String, Codable, Sendable {
     }
 }
 public enum DiagnosticOutcome: String, Codable, Sendable { case success, http, timeout, offline, network }
+public enum ArtworkStage: String, Codable, Sendable {
+    case downloadQueue, preparationQueue, preparation
+}
+
+public struct ArtworkTimer: Sendable {
+    private let started = ProcessInfo.processInfo.systemUptime
+    public init() {}
+    public var milliseconds: Int {
+        max(0, Int((ProcessInfo.processInfo.systemUptime - started) * 1000))
+    }
+}
 
 public struct DiagnosticEvent: Codable, Sendable {
     public let date: Date
@@ -28,6 +38,8 @@ public struct DiagnosticEvent: Codable, Sendable {
     public let milliseconds: Int
     public let status: Int?
     public let outcome: DiagnosticOutcome
+    public var artworkStage: ArtworkStage? = nil
+    public var isPrefetch: Bool? = nil
 }
 
 /// Deliberately accepts no URLs, headers, response bodies, or arbitrary error text.
@@ -72,6 +84,14 @@ public actor DiagnosticRecorder {
                 await self?.flush()
             }
         }
+    }
+
+    public func recordArtwork(_ stage: ArtworkStage, milliseconds: Int, priority: ArtworkPriority) {
+        record(
+            DiagnosticEvent(
+                date: Date(), operation: .artwork, attempt: 0,
+                milliseconds: max(0, milliseconds), status: nil, outcome: .success,
+                artworkStage: stage, isPrefetch: priority == .prefetch))
     }
 
     public func flush() {

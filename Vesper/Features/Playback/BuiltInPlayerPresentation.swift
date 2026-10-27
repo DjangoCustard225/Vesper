@@ -70,6 +70,13 @@ struct BuiltInPlayerPresentation: UIViewControllerRepresentable {
                 choosePlayer: { [weak self] choice in
                     self?.update?.choosePlayer(choice)
                     self?.finish()
+                },
+                restorePresentation: { [weak self] completion in
+                    guard let self, let player = self.player, !self.dismissing else {
+                        completion(false)
+                        return
+                    }
+                    player.restorePictureInPicturePresentation(completion: completion)
                 })
             let player = LandscapePlayerController(rootView: root)
             if previousOrientation.isLandscape { player.startingOrientation = previousOrientation }
@@ -116,6 +123,32 @@ struct BuiltInPlayerPresentation: UIViewControllerRepresentable {
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .landscape }
 
     override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation { startingOrientation }
+
+    func restorePictureInPicturePresentation(completion: @escaping @MainActor (Bool) -> Void) {
+        guard isViewLoaded, view.window != nil, !isBeingDismissed else {
+            completion(false)
+            return
+        }
+        setNeedsUpdateOfSupportedInterfaceOrientations()
+        let settled: @MainActor (Bool) -> Void = { [weak self] cancelled in
+            guard let self, !cancelled, !self.isBeingDismissed,
+                let window = self.viewIfLoaded?.window, !self.view.bounds.isEmpty
+            else {
+                completion(false)
+                return
+            }
+            UIView.performWithoutAnimation { window.layoutIfNeeded() }
+            completion(true)
+        }
+        // AVKit needs the real destination frame before its return animation starts. Keep the
+        // existing controller mounted and wait for any UIKit rotation/presentation to settle.
+        if let transitionCoordinator,
+            transitionCoordinator.animate(alongsideTransition: nil, completion: { settled($0.isCancelled) })
+        {
+            return
+        }
+        DispatchQueue.main.async { settled(false) }
+    }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)

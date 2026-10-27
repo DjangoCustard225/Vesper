@@ -12,12 +12,21 @@ import Foundation
     var plays = 0
     var pauses = 0
     var rates: [Float] = []
+    var seeks: [Double] = []
+    var events: [String] = []
 
-    func play() { plays += 1 }
+    func play() {
+        plays += 1
+        events.append("play")
+    }
 
     func pause() { pauses += 1 }
+    func seek(to seconds: Double) async { seeks.append(seconds) }
 
-    func setRate(_ value: Float) { rates.append(value) }
+    func setRate(_ value: Float) {
+        rates.append(value)
+        events.append("rate:\(value)")
+    }
 }
 
 @MainActor final class ControllerProbe {
@@ -37,6 +46,7 @@ import Foundation
     var ownsAudioSession = false
     var previousIdleTimer = false
     var speed: Float = 1
+    var seekTask: Task<Void, Never>?
     var timeline = PlaybackTimeline(elapsed: 120, duration: 1000, isSeekable: true)
     var now: TimeInterval = 0
 
@@ -65,11 +75,41 @@ import Foundation
 }
 
 @main @MainActor struct Regression {
-    static func main() {
+    static func main() async {
         var passed = 0
         func check(_ condition: @autoclosure () -> Bool, _ message: String) {
             precondition(condition(), message)
             passed += 1
+        }
+        do {
+            let controller = ControllerProbe()
+            controller.loaded = false
+            controller.setSpeed(1.5)
+            controller.togglePlayback()
+            check(
+                controller.speed == 1.5 && controller.engine!.events.isEmpty,
+                "Loading must retain preferences without issuing premature transport commands")
+            controller.loaded = true
+            controller.togglePlayback()
+            check(
+                controller.engine!.events == ["rate:1.5", "play"],
+                "Resume must seed the selected rate before play, without a transient default speed")
+        }
+        do {
+            let controller = ControllerProbe()
+            controller.isPlaying = true
+            controller.beginBoost()
+            controller.beginBoost()
+            check(controller.engine!.rates == [2], "Repeated hold notifications must not repeat rate changes")
+            controller.setSpeed(1.25)
+            controller.endBoost()
+            controller.endBoost()
+            check(
+                controller.engine!.rates == [2, 2, 1.25],
+                "Release must restore the latest preference exactly once")
+            controller.isBuffering = true
+            controller.beginBoost()
+            check(!controller.isBoosting, "Hold must not force faster playback during starvation")
         }
         do {
             let controller = ControllerProbe()
@@ -179,6 +219,18 @@ import Foundation
                 controller.scrobbles.map(\.action) == [.start, .stop]
                     && controller.scrobbles.last?.progress == 12,
                 "Closing during a seek must stop watching at the last confirmed position")
+        }
+        for playing in [true, false] {
+            let controller = ControllerProbe()
+            controller.isPlaying = playing
+            controller.wantsPlayback = playing
+            controller.seek(fraction: 0.06)
+            await controller.seekTask?.value
+            check(controller.engine!.seeks == [60], "Skip Intro must seek to its ending")
+            check(
+                controller.isPlaying == playing && controller.engine!.plays == 0
+                    && controller.engine!.pauses == 0,
+                "Seeking an intro must preserve playing or paused state")
         }
         print("Passed \(passed) Aether adapter transport regression checks.")
     }

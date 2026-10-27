@@ -16,7 +16,7 @@ struct MediaMenuActions: View {
     var body: some View {
         Group {
             if WatchProgress.supports(item) {
-                let watched = store.watchProgress.isWatched(item)
+                let watched = store.isWatched(item)
                 Button(
                     watched ? "Mark as Unwatched" : "Mark as Watched",
                     systemImage: watched ? "circle" : "checkmark.circle"

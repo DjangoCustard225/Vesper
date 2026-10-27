@@ -8,12 +8,10 @@
 !/xtool.yml
 !/Vesper/
 !/Core/
-!/Go/
 !/Dependencies/
 !/Scripts/
 !/Tests/
 !/Vesper.xcodeproj/
-!/VesperGo.xcodeproj/
 !/.github/
 !/docs/
 
@@ -37,28 +35,8 @@
 !/Core/Sources/
 !/Core/Tests/
 
-# Go references the shared source through symlinks; never publish a second copy.
-/Go/*
-!/Go/Package.swift
-!/Go/Build.json
-!/Go/Info.plist
-!/Go/xtool.yml
-!/Go/Sources
-!/Go/Core/
-/Go/Core/*
-!/Go/Core/Package.swift
-!/Go/Core/Sources
-!/Go/Core/Tests/
-
 # Dependency recipes only. Preparation scripts fetch checksum-pinned artifacts.
 /Dependencies/**
-!/Dependencies/MPVKit/
-!/Dependencies/MPVKit/Package.swift
-!/Dependencies/MPVKit/artifacts.json
-!/Dependencies/MPVKit/Sources/
-!/Dependencies/MPVKit/Sources/dummy.c
-!/Dependencies/MPVKit/Sources/include/
-!/Dependencies/MPVKit/Sources/include/dummy.h
 !/Dependencies/AetherEngine/
 !/Dependencies/AetherEngine/Package.swift
 !/Dependencies/AetherEngine/artifacts.json
@@ -78,19 +56,19 @@
 !/Scripts/RenderIconPreviews.sh
 !/Scripts/GenerateXcodeProject.swift
 !/Scripts/NativeSwiftPM.py
-!/Scripts/PrepareMPVKit.py
-!/Scripts/PrepareMPVFramework.py
 !/Scripts/PrepareAetherEngine.py
 !/Scripts/Verify.sh
 !/Scripts/VerifyIPA.py
 !/Scripts/Format.sh
-!/Scripts/TestMPVPlayback.py
 !/Scripts/TestAetherPlayback.py
+!/Scripts/AetherRateTransitions.py
+!/Scripts/TestAetherRateTransitions.py
+!/Scripts/TestPiPLifecycle.py
 !/Scripts/TestIPAPackaging.py
 /Tests/*
-!/Tests/MPVPlaybackMocks.swift
-!/Tests/MPVPlaybackControllerTests.swift
 !/Tests/AetherPlaybackControlTests.swift
+!/Tests/AetherRateTransitionTests.swift
+!/Tests/PiPLifecycleTests.swift
 
 # Keep only shared project configuration, not local Xcode state.
 /Vesper.xcodeproj/*
@@ -100,13 +78,6 @@
 !/Vesper.xcodeproj/xcshareddata/xcschemes/
 /Vesper.xcodeproj/xcshareddata/xcschemes/*
 !/Vesper.xcodeproj/xcshareddata/xcschemes/Vesper.xcscheme
-/VesperGo.xcodeproj/*
-!/VesperGo.xcodeproj/project.pbxproj
-!/VesperGo.xcodeproj/xcshareddata/
-/VesperGo.xcodeproj/xcshareddata/*
-!/VesperGo.xcodeproj/xcshareddata/xcschemes/
-/VesperGo.xcodeproj/xcshareddata/xcschemes/*
-!/VesperGo.xcodeproj/xcshareddata/xcschemes/VesperGo.xcscheme
 
 /docs/*
 !/docs/screenshots/

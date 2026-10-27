@@ -1,1 +1,0 @@
-../../../../Core/Tests/VesperCoreTests/TVDBTests.swift

@@ -119,10 +119,21 @@ extension MetadataEnrichment {
 }
 
 public enum MetadataResolver {
+    private struct EpisodePosition: Hashable {
+        let season: Int
+        let number: Int
+    }
+
     public static func episodes(_ primary: [Episode], fillingFrom fallback: [Episode]) -> [Episode] {
-        primary.map { item in
+        var backups: [EpisodePosition: Episode] = [:]
+        for item in fallback {
+            guard let season = item.season, let number = item.episode else { continue }
+            let key = EpisodePosition(season: season, number: number)
+            if backups[key] == nil { backups[key] = item }
+        }
+        return primary.map { item in
             guard let season = item.season, let number = item.episode,
-                let backup = fallback.first(where: { $0.season == season && $0.episode == number })
+                let backup = backups[EpisodePosition(season: season, number: number)]
             else { return item }
             return Episode(
                 id: item.id, title: item.title ?? backup.title, name: item.name ?? backup.name,
@@ -133,6 +144,7 @@ public enum MetadataResolver {
     }
 
     public static func enrichment(
+        isolation: isolated (any Actor)? = #isolation,
         primary: () async throws -> MetadataEnrichment?,
         fallback: () async throws -> MetadataEnrichment?
     ) async throws -> MetadataEnrichment? {

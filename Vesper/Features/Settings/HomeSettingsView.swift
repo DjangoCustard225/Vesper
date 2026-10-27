@@ -18,9 +18,7 @@ struct HomeSettingsView: View {
                     Text("Unavailable catalog").tag(store.heroCatalogID)
                 }
             }.pickerStyle(.inline)
-            #if !VESPER_GO
             Section { Toggle("Continue Watching", isOn: $store.showContinueWatching) }
-            #endif
         }.appScrollEdges().navigationTitle("Home").navigationBarTitleDisplayMode(.inline)
     }
 }

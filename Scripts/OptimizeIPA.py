@@ -83,9 +83,9 @@ def runtime_identity(data):
     return identity
 
 
-def optimize(ipa, root, go=False):
-    # Private-symbol checks must happen before their removal, particularly Go's exclusion audit.
-    verify(ipa, root, go=go, unstripped=True, write_checksum=False)
+def optimize(ipa, root):
+    # Audit private symbols before stripping them from release binaries.
+    verify(ipa, root, unstripped=True, write_checksum=False)
     tool = strip_command()
     original_size = ipa.stat().st_size
     with tempfile.TemporaryDirectory(prefix="vesper-ipa-", dir=ipa.parent) as directory:
@@ -128,14 +128,14 @@ def optimize(ipa, root, go=False):
                     item = copy(entry)
                     item.compress_type = zipfile.ZIP_DEFLATED
                     destination.writestr(item, data, compresslevel=9)
-        verify(output, root, go=go, write_checksum=False)
+        verify(output, root, write_checksum=False)
         with zipfile.ZipFile(output) as final:
             unpacked = sum(item.file_size for item in final.infolist())
         compressed = output.stat().st_size
         if compressed >= original_size:
             raise ValueError("Optimized IPA is not smaller than the original")
         output.replace(ipa)
-    verify(ipa, root, go=go)
+    verify(ipa, root)
     print(f"IPA download: {original_size / 2**20:.2f} → {compressed / 2**20:.2f} MiB")
     print(f"Unpacked bundle: {original_unpacked / 2**20:.2f} → {unpacked / 2**20:.2f} MiB")
 
@@ -143,10 +143,9 @@ def optimize(ipa, root, go=False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("ipa", type=Path)
-    parser.add_argument("--go", action="store_true")
     arguments = parser.parse_args()
     try:
-        optimize(arguments.ipa, Path(__file__).resolve().parent.parent, go=arguments.go)
+        optimize(arguments.ipa, Path(__file__).resolve().parent.parent)
     except (OSError, ValueError, KeyError, struct.error, zipfile.BadZipFile, subprocess.CalledProcessError) as error:
         detail = error.stderr if isinstance(error, subprocess.CalledProcessError) else str(error)
         sys.exit(f"IPA optimization failed: {detail}")

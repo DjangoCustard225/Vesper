@@ -19,11 +19,12 @@ final class ExternalPlayerTests: XCTestCase {
     func testSavedPlayerMigrationRetainsExternalChoices() {
         XCTAssertEqual(VideoPlayer.preferred(storedValue: "vlc"), .vlc)
         XCTAssertEqual(VideoPlayer.preferred(storedValue: "infuse"), .infuse)
-        for value in [nil, "builtIn", "unknown", "vidhub", "other"] {
-            XCTAssertEqual(VideoPlayer.preferred(storedValue: value), .builtIn)
+        for value in [nil, "unknown", "vidhub", "other"] {
+            XCTAssertEqual(VideoPlayer.preferred(storedValue: value), .aether)
         }
         XCTAssertEqual(VideoPlayer.preferred(storedValue: "aether"), .aether)
-        XCTAssertEqual(VideoPlayer.allCases, [.builtIn, .aether, .vlc, .infuse, .outplayer])
+        XCTAssertEqual(VideoPlayer.preferred(storedValue: "builtIn"), .aether)
+        XCTAssertEqual(VideoPlayer.allCases, [.aether, .vlc, .infuse, .outplayer])
         XCTAssertEqual(VideoPlayer.externalPlayers, [.vlc, .infuse, .outplayer])
     }
 
@@ -44,8 +45,8 @@ final class ExternalPlayerTests: XCTestCase {
             return url.scheme == "outplayer"
         }
         XCTAssertEqual(schemes, ["vlc-x-callback", "infuse", "outplayer"])
-        XCTAssertEqual(available, [.builtIn, .aether, .outplayer])
-        XCTAssertEqual(VideoPlayer.builtIn.availablePreference(in: available), .builtIn)
+        XCTAssertEqual(available, [.aether, .outplayer])
+        XCTAssertEqual(VideoPlayer.aether.availablePreference(in: available), .aether)
         XCTAssertEqual(VideoPlayer.infuse.availablePreference(in: available), .outplayer)
     }
 
@@ -71,14 +72,14 @@ final class ExternalPlayerTests: XCTestCase {
             XCTAssertNoThrow(try player.launchURL(for: stream))
         }
         let detected = VideoPlayer.availablePlayers(VideoPlayer.allCases) { _ in false }
-        XCTAssertEqual(detected, [.builtIn, .aether])
+        XCTAssertEqual(detected, [.aether])
     }
 
     func testInstalledPreferenceSurvivesRescansAndRemovedAppsGetAvailableFallback() {
         let available = VideoPlayer.availablePlayers(VideoPlayer.externalPlayers) { _ in true }
         XCTAssertEqual(VideoPlayer.outplayer.availablePreference(in: available), .outplayer)
         XCTAssertEqual(VideoPlayer.vlc.availablePreference(in: [.infuse]), .infuse)
-        XCTAssertEqual(VideoPlayer.vlc.availablePreference(in: [.builtIn, .aether]), .builtIn)
+        XCTAssertEqual(VideoPlayer.vlc.availablePreference(in: [.aether]), .aether)
     }
 
     func testOutplayerIsDetectedAndRetainedAsPreferredPlayer() {

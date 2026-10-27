@@ -9,15 +9,17 @@ public struct WatchRecord: Codable, Identifiable, Sendable {
     public let watched: Bool
     public let updatedAt: Date
     public var importedFromTrakt: Bool? = nil
-    #if !VESPER_GO
     public var hiddenFromContinueWatching: Bool? = nil
-    #endif
 
     public var id: String { media.key + ":" + (videoID ?? "watched") }
 
     // A show's episode identity remains stable when TMDB enrichment adds an IMDb ID.
     public var episodeKey: String? {
         guard media.type == "series", let videoID else { return nil }
+        return Self.episodeKey(for: videoID)
+    }
+
+    static func episodeKey(for videoID: String) -> String? {
         let parts = videoID.split(separator: ":")
         guard parts.count >= 3, let season = Int(parts[parts.count - 2]), season >= 0,
             let episode = Int(parts[parts.count - 1]), episode > 0
@@ -30,12 +32,10 @@ public struct WatchRecord: Codable, Identifiable, Sendable {
     // A manual episode reset records an explicit choice without inventing playback timing.
     var isManualUnwatched: Bool { media.type == "series" && videoID != nil && !watched && duration == 0 }
 
-    #if !VESPER_GO
     public func playbackID(for item: MediaItem) -> String {
         if let episodeKey { return item.playbackID + ":" + episodeKey }
         return videoID.map { MediaIdentity.videoID($0, for: item) } ?? item.playbackID
     }
-    #endif
 
     fileprivate func matches(videoID: String, media: MediaItem) -> Bool {
         guard self.media.isSameTitle(as: media), self.videoID != nil else { return false }
@@ -53,7 +53,6 @@ public struct WatchProgress: Codable, Sendable {
 
     public init() {}
 
-    #if !VESPER_GO
     public var continueWatching: [WatchRecord] {
         var result: [WatchRecord] = []
         var hiddenAliases = Set<String>()
@@ -79,7 +78,6 @@ public struct WatchProgress: Codable, Sendable {
             records[index].hiddenFromContinueWatching = true
         }
     }
-    #endif
 
     public func isWatched(_ media: MediaItem, episode: Episode? = nil) -> Bool {
         if let episode,
@@ -100,7 +98,6 @@ public struct WatchProgress: Codable, Sendable {
             }
     }
 
-    #if !VESPER_GO
     public func resumePosition(for media: MediaItem, videoID: String) -> Double {
         guard !isWatched(media),
             let record = records.first(where: { $0.matches(videoID: videoID, media: media) }),
@@ -108,7 +105,6 @@ public struct WatchProgress: Codable, Sendable {
         else { return 0 }
         return record.elapsed
     }
-    #endif
 
     public mutating func setWatched(
         _ watched: Bool, for media: MediaItem, episode: Episode? = nil, now: Date = Date()
@@ -137,7 +133,6 @@ public struct WatchProgress: Codable, Sendable {
         trim()
     }
 
-    #if !VESPER_GO
     @discardableResult public mutating func record(
         media: MediaItem, videoID: String, subtitle: String?,
         elapsed: Double, duration: Double, ended: Bool = false,
@@ -159,7 +154,6 @@ public struct WatchProgress: Codable, Sendable {
         trim()
         return true
     }
-    #endif
 
     public static func supports(_ media: MediaItem) -> Bool {
         (media.type == "movie" || media.type == "series") && media.behaviorHints?.isLive != true

@@ -1,13 +1,11 @@
 import Foundation
 import VesperCore
 
-#if !VESPER_GO
 struct PlayerGesturePreferences: Codable, Equatable {
     var holdFor2x = true
     var brightnessSwipe = true
     var volumeSwipe = true
 }
-#endif
 
 enum AppPreferenceStorage {
     static func preferredPlayer(in defaults: UserDefaults = .standard) -> VideoPlayer {
@@ -26,7 +24,14 @@ enum AppPreferenceStorage {
         defaults.set(visible, forKey: "showAllExternalPlayers")
     }
 
-    #if !VESPER_GO
+    static func showSkipIntro(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: "showSkipIntro") as? Bool ?? true
+    }
+
+    static func saveShowSkipIntro(_ visible: Bool, in defaults: UserDefaults = .standard) {
+        defaults.set(visible, forKey: "showSkipIntro")
+    }
+
     static func gestures(in defaults: UserDefaults = .standard) -> PlayerGesturePreferences {
         defaults.data(forKey: "playerGestures")
             .flatMap { try? JSONDecoder().decode(PlayerGesturePreferences.self, from: $0) }
@@ -48,5 +53,4 @@ enum AppPreferenceStorage {
     static func removeRetiredPreferences(in defaults: UserDefaults = .standard) {
         defaults.removeObject(forKey: "automaticallyOpenLastStream")
     }
-    #endif
 }

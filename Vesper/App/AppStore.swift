@@ -38,11 +38,15 @@ final class AppStore {
     var preferredPlayer: VideoPlayer {
         didSet { AppPreferenceStorage.save(preferredPlayer) }
     }
-    #if !VESPER_GO
+    @ObservationIgnored private let introClient = IntroDBClient(
+        cache: ResponseCache(
+            directory: AppStore.cacheDirectory.appendingPathComponent("IntroDB")))
+    var showSkipIntro: Bool {
+        didSet { AppPreferenceStorage.saveShowSkipIntro(showSkipIntro) }
+    }
     var playerGestures: PlayerGesturePreferences {
         didSet { AppPreferenceStorage.save(playerGestures) }
     }
-    #endif
 
     var isLoading: Bool { home.isLoading }
     private(set) var isClearingCache = false
@@ -51,11 +55,13 @@ final class AppStore {
     let trakt = TraktStore()
 
     var watchProgress: WatchProgress { history.state }
-    #if !VESPER_GO
+
+    func isWatched(_ item: MediaItem, episode: Episode? = nil) -> Bool {
+        history.isWatched(item, episode: episode)
+    }
     var showContinueWatching: Bool {
         didSet { AppPreferenceStorage.saveContinueWatching(showContinueWatching) }
     }
-    #endif
     private(set) var cacheChanges = MetadataChanges()
     private(set) var cacheVersions: [String: UUID] = [:]
     private var localStorageError: String?
@@ -95,11 +101,10 @@ final class AppStore {
     init() {
         let showAllExternalPlayers = AppPreferenceStorage.showAllExternalPlayers()
         self.showAllExternalPlayers = showAllExternalPlayers
-        #if !VESPER_GO
+        showSkipIntro = AppPreferenceStorage.showSkipIntro()
         showContinueWatching = AppPreferenceStorage.showContinueWatching()
         playerGestures = AppPreferenceStorage.gestures()
         AppPreferenceStorage.removeRetiredPreferences()
-        #endif
         client = AddonClient(cache: addonCache)
         tmdbClient = TMDBClient(cache: tmdbCache)
         tvdbClient = TVDBClient(cache: tvdbCache)
@@ -333,6 +338,7 @@ final class AppStore {
         do { try await client.clearCache() } catch { failed = true }
         do { try await previous.clearCache() } catch { failed = true }
         do { try await previousTVDB.clearCache() } catch { failed = true }
+        do { try await introClient.clearCache() } catch { failed = true }
         await ArtworkPipeline.shared.clearCache()
         cacheVersions = [:]
         tmdbRevision = UUID()
@@ -360,6 +366,37 @@ final class AppStore {
         }
     }
     // MARK: - Metadata access
+
+    func introSegment(for media: MediaItem, video: VideoSelection, knownEpisodes: [Episode]) async throws
+        -> IntroSegment?
+    {
+        guard showSkipIntro, !isClearingCache, media.type == "series",
+            let current = UpNext.currentEpisode(
+                media: media, videoID: video.id, episode: video.episode,
+                knownEpisodes: knownEpisodes + (media.videos ?? [])),
+            let season = current.season, let number = current.episode
+        else { return nil }
+        let revision = metadataConfigurationRevision
+        var identified = media
+        if MediaIdentity.validIMDb(media.imdbID) == nil, MediaIdentity.validIMDb(media.id) == nil,
+            hasMetadata(for: media), let details = try await enrichedMetadata(for: media)
+        {
+            identified = details.applying(to: media)
+        }
+        guard let imdb = MediaIdentity.validIMDb(identified.imdbID) ?? MediaIdentity.validIMDb(identified.id),
+            let episode = IntroEpisode(imdbID: imdb, season: season, episode: number)
+        else { return nil }
+        try Task.checkCancellation()
+        guard showSkipIntro, !isClearingCache, revision == metadataConfigurationRevision else {
+            throw CancellationError()
+        }
+        let segment = try await introClient.segment(for: episode)
+        try Task.checkCancellation()
+        guard showSkipIntro, !isClearingCache, revision == metadataConfigurationRevision else {
+            throw CancellationError()
+        }
+        return segment
+    }
 
     func identifiedItems(_ items: [MediaItem], resolveUnknown: Bool = true) async -> [MediaItem] {
         guard let credential = tmdbCredential else { return MediaIdentity.unique(items) }
@@ -463,9 +500,11 @@ final class AppStore {
             }
         }
         if let id = details.tmdbID, tmdbCredential != nil {
-            return try await withTMDB {
+            let result = try await withTMDB {
                 try await $0.episodes(for: media, tmdbID: id, season: season, credential: $1)
             }
+            guard revision == metadataConfigurationRevision else { throw CancellationError() }
+            return result
         }
         return (media.videos ?? []).filter { $0.season == season }
     }
@@ -551,7 +590,6 @@ final class AppStore {
     }
 
     func disconnectTrakt() async { await trakt.disconnect(history: history) }
-    #if !VESPER_GO
     func removeFromContinueWatching(_ item: MediaItem) {
         history.removeFromContinueWatching(for: item)
     }
@@ -563,7 +601,6 @@ final class AppStore {
     func scrobble(_ event: TraktScrobbleEvent, media: MediaItem, videoID: String) {
         trakt.receive(event, media: media, videoID: videoID, history: history)
     }
-    #endif
 
     func flushWatchProgress() async { await history.flush() }
 

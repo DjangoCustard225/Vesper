@@ -2,7 +2,9 @@ import Foundation
 
 public enum MediaIdentity {
     public static func validIMDb(_ value: String?) -> String? {
-        guard let value, value.range(of: "^tt[0-9]+$", options: .regularExpression) != nil else { return nil }
+        guard let value, value.hasPrefix("tt"), value.utf8.count > 2,
+            value.utf8.dropFirst(2).allSatisfy({ (48...57).contains($0) })
+        else { return nil }
         return value
     }
 

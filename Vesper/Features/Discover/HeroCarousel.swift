@@ -7,13 +7,16 @@ struct HeroPresentation {
     let titleImage: Image?
     let metadataRevision: String
 
-    @MainActor static func prepare(_ item: MediaItem, store: AppStore) async -> HeroPresentation {
+    @MainActor static func prepare(
+        _ item: MediaItem, store: AppStore, priority: ArtworkPriority = .visible
+    ) async -> HeroPresentation {
         var media = item
         var image: Image?
         if let details = try? await store.enrichedMetadata(for: item), !Task.isCancelled {
             media = details.applying(to: item)
             if let value = details.titleLogoURL, let url = try? AddonURL.http(value),
-                let prepared = try? await ArtworkPipeline.shared.image(for: url), !Task.isCancelled
+                let prepared = try? await ArtworkPipeline.shared.image(for: url, priority: priority),
+                !Task.isCancelled
             {
                 image = Image(uiImage: prepared)
             }
@@ -74,7 +77,8 @@ struct HeroCarousel: View {
             }
         }
         .task(
-            id: items.map(\.key).joined(separator: "|") + store.metadataConfigurationRevision
+            id: (selectedID ?? "") + "|" + items.map(\.key).joined(separator: "|")
+                + store.metadataConfigurationRevision
                 + store.metadataRevision(for: items.map { store.detailsCacheID($0) })
         ) { await prepareTitles() }
         .prefetchArtwork(nearbyArtwork)
@@ -130,7 +134,8 @@ struct HeroCarousel: View {
     }
 
     private func prepare(_ item: MediaItem) async -> (String, HeroPresentation) {
-        (item.key, await HeroPresentation.prepare(item, store: store))
+        let priority: ArtworkPriority = item.key == (selectedID ?? items.first?.key) ? .visible : .prefetch
+        return (item.key, await HeroPresentation.prepare(item, store: store, priority: priority))
     }
 }
 

@@ -6,7 +6,7 @@ struct StreamPickerView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     let media: MediaItem
-    let video: VideoSelection
+    @State private var video: VideoSelection
     @State private var model = StreamLoadingController()
 
     private var result: StreamResults { model.result }
@@ -15,11 +15,24 @@ struct StreamPickerView: View {
     @State private var error: String?
     @State private var launchTask: Task<Void, Never>?
     @State private var launching = false
-    #if !VESPER_GO
     @State private var playbackRequest: PlaybackRequest?
     @State private var playbackOption: StreamOption?
-    @State private var pendingPlayer: VideoPlayer?
-    #endif
+    private enum PlaybackHandoff {
+        case player(VideoPlayer)
+        case episode(Episode)
+    }
+    @State private var pendingHandoff: PlaybackHandoff?
+    private let episodes: [Episode]
+    private let details: MetadataEnrichment?
+
+    init(
+        media: MediaItem, video: VideoSelection, episodes: [Episode] = [], details: MetadataEnrichment? = nil
+    ) {
+        self.media = media
+        _video = State(initialValue: video)
+        self.episodes = episodes
+        self.details = details
+    }
 
     var body: some View {
         NavigationStack {
@@ -31,18 +44,16 @@ struct StreamPickerView: View {
                     model.cancel()
                     launchTask?.cancel()
                 }
-                #if !VESPER_GO
-            .background {
-                BuiltInPlayerPresentation(
-                    request: $playbackRequest, gesturePreferences: store.playerGestures,
-                    players: store.availablePlayers,
-                    onDismiss: finishPlayback
-                ) { player in
-                    pendingPlayer = player
-                    playbackRequest = nil
+                .background {
+                    BuiltInPlayerPresentation(
+                        request: $playbackRequest, gesturePreferences: store.playerGestures,
+                        players: store.availablePlayers,
+                        onDismiss: finishPlayback
+                    ) { player in
+                        pendingHandoff = .player(player)
+                        playbackRequest = nil
+                    }
                 }
-            }
-                #endif
                 .alert(
                     "Unable to play",
                     isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })
@@ -64,22 +75,14 @@ struct StreamPickerView: View {
             HStack {
                 Text("Player").font(.headline)
                 Spacer()
-                if store.availablePlayers.isEmpty {
-                    Text("None installed").foregroundStyle(.secondary)
-                } else {
-                    Picker("Player", selection: $store.preferredPlayer) {
-                        ForEach(store.availablePlayers) { Text($0.title).tag($0) }
-                    }.pickerStyle(.menu).labelsHidden()
-                }
+                Picker("Player", selection: $store.preferredPlayer) {
+                    ForEach(store.availablePlayers) { Text($0.title).tag($0) }
+                }.pickerStyle(.menu).labelsHidden()
             }.padding(.horizontal, 14).padding(.vertical, 8)
                 .background(Color(white: 0.08), in: RoundedRectangle(cornerRadius: 22))
                 .overlay {
                     RoundedRectangle(cornerRadius: 22).strokeBorder(.white.opacity(0.22), lineWidth: 1)
                 }
-            if store.availablePlayers.isEmpty {
-                Text("Install Infuse, Outplayer, or VLC to play videos.").font(.subheadline).foregroundStyle(
-                    .secondary)
-            }
             if loading { ProgressView("Finding streams…").frame(maxWidth: .infinity).padding(.vertical, 30) }
             if !loading && result.options.isEmpty {
                 VStack(spacing: 12) {
@@ -119,9 +122,7 @@ struct StreamPickerView: View {
     }
 
     private func load() async {
-        #if !VESPER_GO
         guard playbackRequest == nil else { return }
-        #endif
         await model.load(key: media.type + ":" + video.id + store.addonRevision.uuidString) { update in
             await store.streamOptions(
                 type: media.type, videoID: video.id, embedded: video.embedded, onUpdate: update)
@@ -154,12 +155,10 @@ struct StreamPickerView: View {
                     error = "Install Infuse, Outplayer, or VLC to play videos."
                     return
                 }
-                #if !VESPER_GO
                 if player.isInternal {
                     playbackOption = option
                     playbackRequest = PlaybackRequest(
                         url: url, title: media.name, subtitle: video.title,
-                        engine: player == .aether ? .aether : .mpv,
                         isLive: media.behaviorHints?.isLive == true || media.type == "tv",
                         resumeSeconds: store.watchProgress.resumePosition(for: media, videoID: video.id),
                         onProgress: { [store, media, video] update in
@@ -167,10 +166,17 @@ struct StreamPickerView: View {
                         },
                         onScrobble: { [store, media, video] event in
                             store.scrobble(event, media: media, videoID: video.id)
-                        })
+                        },
+                        loadUpNext: { [store, media, video, episodes, details] in
+                            try await store.nextEpisode(
+                                for: media, video: video, knownEpisodes: episodes, details: details)
+                        },
+                        onNextEpisode: { episode in pendingHandoff = .episode(episode) },
+                        loadIntroSegment: { [store, media, video, episodes] in
+                            try await store.introSegment(for: media, video: video, knownEpisodes: episodes)
+                        }, introSkippingEnabled: { [store] in store.showSkipIntro })
                     return
                 }
-                #endif
                 let launch = try player.launchURL(for: url)
                 openURL(launch) { accepted in
                     if !accepted {
@@ -185,14 +191,18 @@ struct StreamPickerView: View {
             }
         } catch { self.error = error.localizedDescription }
     }
-    #if !VESPER_GO
     private func finishPlayback() {
         let option = playbackOption
-        let player = pendingPlayer
+        let handoff = pendingHandoff
         playbackOption = nil
-        pendingPlayer = nil
-        // Refresh expiring provider URLs before retries or external handoffs.
-        if let option, let player { play(option, player: player) }
+        pendingHandoff = nil
+        switch handoff {
+        case .episode(let episode):
+            video = VideoSelection(episode: episode)
+        case .player(let player):
+            // Refresh expiring provider URLs before retries or external handoffs.
+            if let option { play(option, player: player) }
+        case nil: break
+        }
     }
-    #endif
 }

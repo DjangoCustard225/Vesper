@@ -8,29 +8,33 @@ struct AetherVideoSurface: View {
     var body: some View {
         ZStack {
             AetherRenderSurface(controller: controller)
-            GeometryReader { geometry in
-                let cues = controller.subtitleCues.filter {
-                    $0.startTime <= controller.subtitleTime && controller.subtitleTime < $0.endTime
-                }
-                let text = cues.compactMap(\.text).joined(separator: "\n")
-                ForEach(cues) { cue in
-                    if case .image(let subtitle) = cue.body {
-                        let rect = subtitleRect(subtitle, size: geometry.size)
-                        Image(decorative: subtitle.cgImage, scale: 1).resizable()
-                            .frame(width: rect.width, height: rect.height).position(
-                                x: rect.midX, y: rect.midY)
+            if !controller.pictureInPictureState.isPresented {
+                GeometryReader { geometry in
+                    let cues = controller.subtitleCues.filter {
+                        $0.startTime <= controller.subtitleTime && controller.subtitleTime < $0.endTime
                     }
-                }
-                if !text.isEmpty {
-                    VStack {
-                        Spacer()
-                        Text(text).font(.system(size: 22, weight: .medium)).multilineTextAlignment(.center)
+                    let text = cues.compactMap(\.text).joined(separator: "\n")
+                    ForEach(cues) { cue in
+                        if case .image(let subtitle) = cue.body {
+                            let rect = subtitleRect(subtitle, size: geometry.size)
+                            Image(decorative: subtitle.cgImage, scale: 1).resizable()
+                                .frame(width: rect.width, height: rect.height).position(
+                                    x: rect.midX, y: rect.midY)
+                        }
+                    }
+                    if !text.isEmpty {
+                        VStack {
+                            Spacer()
+                            Text(text).font(.system(size: 22, weight: .medium)).multilineTextAlignment(
+                                .center
+                            )
                             .foregroundStyle(.white).padding(.horizontal, 8).padding(.vertical, 4)
                             .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
                             .padding(.horizontal, 42).padding(.bottom, 28)
-                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }.allowsHitTesting(false)
+                        }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }.allowsHitTesting(false)
+            }
         }
     }
 

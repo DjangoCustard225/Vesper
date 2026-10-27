@@ -172,6 +172,12 @@ public struct MediaItem: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
+extension MediaItem {
+    public init(id: String, type: String, name: String, poster: String?) {
+        self.init(id: id, type: type, name: name, poster: poster, background: nil)
+    }
+}
+
 public struct MediaHints: Codable, Hashable, Sendable {
     public let defaultVideoId: String?
     public let isLive: Bool?

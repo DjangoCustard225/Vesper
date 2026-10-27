@@ -14,14 +14,12 @@ struct DetailView: View {
         self.item = item
         _model = State(initialValue: DetailLoadingController(item: item, startPlayback: startPlayback))
     }
-    #if !VESPER_GO
     init(item: MediaItem, startPlayback: Bool = false, resumeRecord: WatchRecord?) {
         self.item = item
         _model = State(
             initialValue: DetailLoadingController(
                 item: item, startPlayback: startPlayback, resumeRecord: resumeRecord))
     }
-    #endif
 
     private var media: MediaItem { model.media }
 
@@ -142,7 +140,8 @@ struct DetailView: View {
             await loadSeason(preserveExisting: !model.seasonEpisodes.isEmpty)
         }
         .sheet(item: $selection) { video in
-            StreamPickerView(media: media, video: video).presentationDragIndicator(.visible)
+            StreamPickerView(media: media, video: video, episodes: episodes, details: enrichment)
+                .presentationDragIndicator(.visible)
         }
         .sheet(isPresented: $showingAbout) {
             AboutDescriptionView(title: media.name, description: media.description ?? "")
@@ -267,20 +266,11 @@ struct DetailView: View {
                     .foregroundStyle(.secondary).font(.subheadline)
             }
             if !episodes.isEmpty {
-                ScrollView(.horizontal) {
-                    LazyHStack(alignment: .top, spacing: 12) {
-                        ForEach(episodes) { episode in
-                            EpisodeCard(
-                                media: media, episode: episode,
-                                play: {
-                                    selection = VideoSelection(
-                                        id: episode.id, title: episode.label + " · " + episode.displayTitle,
-                                        embedded: episode.streams)
-                                }, showDescription: { episodeAbout = episode })
-                        }
-                    }.padding(.horizontal, 20)
-                }
-                .scrollIndicators(.hidden).appScrollEdges()
+                EpisodeShelf(
+                    media: media, episodes: episodes,
+                    play: { selection = VideoSelection(episode: $0) },
+                    showDescription: { episodeAbout = $0 }
+                )
                 .padding(.horizontal, -20).id(season)
             }
         }.padding(.horizontal, -4)

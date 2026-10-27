@@ -54,7 +54,6 @@ public struct WatchProgressRepository: Sendable {
 
     public func load() throws -> (state: WatchProgress, recovered: Bool) {
         let loaded = try loadStoredProgress()
-        #if !VESPER_GO
         // Remove retired source selections without rotating or merging progress backups.
         for file in [url, backupURL] {
             guard let data = try? read(file), let state = try? Self.decode(data),
@@ -68,7 +67,6 @@ public struct WatchProgressRepository: Sendable {
                 try PersistenceIO.excludeFromBackup(file)
             } catch { throw WatchProgressError.writeFailed }
         }
-        #endif
         return loaded
     }
 

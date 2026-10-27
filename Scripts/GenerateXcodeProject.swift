@@ -1,13 +1,9 @@
 import Foundation
 
-struct GoBuildConfiguration: Decodable { let excludedSources: [String] }
-let goConfiguration = try JSONDecoder().decode(
-    GoBuildConfiguration.self, from: Data(contentsOf: URL(fileURLWithPath: "Go/Build.json")))
-for name in ["Vesper", "VesperGo"] {
-    let isGo = name == "VesperGo"
-    let infoPath = isGo ? "Go/Info.plist" : "Vesper/Info.plist"
-    let bundleID = isGo ? "app.vesper.go" : "app.vesper"
-    let excluded = Set(isGo ? goConfiguration.excludedSources.map { "Vesper/" + $0 } : [])
+do {
+    let name = "Vesper"
+    let infoPath = "Vesper/Info.plist"
+    let bundleID = "app.vesper"
     let fm = FileManager.default
     let infoData = try Data(contentsOf: URL(fileURLWithPath: infoPath))
     guard
@@ -18,7 +14,7 @@ for name in ["Vesper", "VesperGo"] {
         fatalError("\(infoPath) must declare the app version and build number.")
     }
     let sources = (fm.enumerator(atPath: "Vesper")?.allObjects as? [String] ?? [])
-        .filter { $0.hasSuffix(".swift") }.sorted().map { "Vesper/" + $0 }.filter { !excluded.contains($0) }
+        .filter { $0.hasSuffix(".swift") }.sorted().map { "Vesper/" + $0 }
     func id(_ value: Int) -> String { String(format: "%024X", value) }
     var objects: [String] = []
     var sourceRefs: [String: [String]] = [:]
@@ -48,7 +44,7 @@ for name in ["Vesper", "VesperGo"] {
             .sorted().compactMap { groupIDs[$0] }
         var children = subgroups + (sourceRefs[directory] ?? [])
         if directory == "Vesper" {
-            children += [id(300), id(302), id(304), id(311)] + (isGo ? [] : [id(307), id(309)])
+            children += [id(300), id(302), id(304), id(311), id(309)]
         }
         objects.append(
             "\(groupIDs[directory]!) = {isa = PBXGroup; children = (\(children.joined(separator: ","))); name = \"\((directory as NSString).lastPathComponent)\"; sourceTree = \"<group>\"; };"
@@ -62,36 +58,27 @@ for name in ["Vesper", "VesperGo"] {
         "\(id(304)) = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = \(infoPath); sourceTree = SOURCE_ROOT; };",
         "\(id(305)) = {isa = PBXFileReference; explicitFileType = wrapper.application; path = \(name).app; sourceTree = BUILT_PRODUCTS_DIR; };",
         "\(id(306)) = {isa = PBXBuildFile; productRef = \(id(401)); };",
-        "\(id(307)) = {isa = PBXFileReference; lastKnownFileType = text; path = Vesper/Resources/MPVKit-LICENSE.txt; sourceTree = SOURCE_ROOT; };",
-        "\(id(308)) = {isa = PBXBuildFile; fileRef = \(id(307)); };",
         "\(id(309)) = {isa = PBXFileReference; lastKnownFileType = text; path = Vesper/Resources/AetherEngine-LICENSE.txt; sourceTree = SOURCE_ROOT; };",
         "\(id(310)) = {isa = PBXBuildFile; fileRef = \(id(309)); };",
         "\(id(311)) = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = Vesper/VesperIcon.icon; sourceTree = SOURCE_ROOT; };",
         "\(id(312)) = {isa = PBXBuildFile; fileRef = \(id(311)); };",
-        "\(id(402)) = {isa = XCLocalSwiftPackageReference; relativePath = Dependencies/MPVKit; };",
-        "\(id(403)) = {isa = XCSwiftPackageProductDependency; package = \(id(402)); productName = MPVKit; };",
-        "\(id(404)) = {isa = PBXBuildFile; productRef = \(id(403)); };",
         "\(id(405)) = {isa = XCLocalSwiftPackageReference; relativePath = Dependencies/AetherEngine; };",
         "\(id(406)) = {isa = XCSwiftPackageProductDependency; package = \(id(405)); productName = AetherEngine; };",
         "\(id(407)) = {isa = PBXBuildFile; productRef = \(id(406)); };",
-        "\(id(400)) = {isa = XCLocalSwiftPackageReference; relativePath = \(isGo ? "Go/Core" : "Core"); };",
+        "\(id(400)) = {isa = XCLocalSwiftPackageReference; relativePath = Core; };",
         "\(id(401)) = {isa = XCSwiftPackageProductDependency; package = \(id(400)); productName = VesperCore; };",
-        "\(id(1)) = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 2700; }; buildConfigurationList = \(id(10)); compatibilityVersion = \"Xcode 14.0\"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = \(id(2)); productRefGroup = \(id(3)); projectDirPath = \"\"; projectRoot = \"\"; packageReferences = (\(isGo ? id(400) : [id(400), id(402), id(405)].joined(separator: ","))); targets = (\(id(4))); };",
+        "\(id(1)) = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 2700; }; buildConfigurationList = \(id(10)); compatibilityVersion = \"Xcode 14.0\"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = \(id(2)); productRefGroup = \(id(3)); projectDirPath = \"\"; projectRoot = \"\"; packageReferences = (\([id(400), id(405)].joined(separator: ","))); targets = (\(id(4))); };",
         "\(id(2)) = {isa = PBXGroup; children = (\(groupIDs["Vesper"]!), \(id(3))); sourceTree = \"<group>\"; };",
         "\(id(3)) = {isa = PBXGroup; children = (\(id(305))); name = Products; sourceTree = \"<group>\"; };",
-        "\(id(4)) = {isa = PBXNativeTarget; buildConfigurationList = \(id(11)); buildPhases = (\(id(5)), \(id(6)), \(id(7))); buildRules = (); dependencies = (); name = \(name); packageProductDependencies = (\(isGo ? id(401) : [id(401), id(403), id(406)].joined(separator: ","))); productName = \(name); productReference = \(id(305)); productType = \"com.apple.product-type.application\"; };",
+        "\(id(4)) = {isa = PBXNativeTarget; buildConfigurationList = \(id(11)); buildPhases = (\(id(5)), \(id(6)), \(id(7))); buildRules = (); dependencies = (); name = \(name); packageProductDependencies = (\([id(401), id(406)].joined(separator: ","))); productName = \(name); productReference = \(id(305)); productType = \"com.apple.product-type.application\"; };",
         "\(id(5)) = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (\(sourceBuilds.joined(separator: ","))); runOnlyForDeploymentPostprocessing = 0; };",
-        "\(id(6)) = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (\(isGo ? id(306) : [id(306), id(404), id(407)].joined(separator: ","))); runOnlyForDeploymentPostprocessing = 0; };",
-        "\(id(7)) = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (\((isGo ? [id(301), id(303), id(312)] : [id(301), id(303), id(308), id(310), id(312)]).joined(separator: ","))); runOnlyForDeploymentPostprocessing = 0; };",
+        "\(id(6)) = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (\([id(306), id(407)].joined(separator: ","))); runOnlyForDeploymentPostprocessing = 0; };",
+        "\(id(7)) = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (\([id(301), id(303), id(310), id(312)].joined(separator: ","))); runOnlyForDeploymentPostprocessing = 0; };",
         "\(id(10)) = {isa = XCConfigurationList; buildConfigurations = (\(id(12)), \(id(13))); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };",
         "\(id(11)) = {isa = XCConfigurationList; buildConfigurations = (\(id(14)), \(id(15))); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };",
     ]
-    if isGo {
-        let unused = [307, 308, 309, 310, 402, 403, 404, 405, 406, 407].map { id($0) + " =" }
-        objects.removeAll { object in unused.contains { object.hasPrefix($0) } }
-    }
     for (index, configurationName) in ["Debug", "Release"].enumerated() {
-        let conditions = (isGo ? ["VESPER_GO"] : []) + (index == 0 ? ["DEBUG"] : [])
+        let conditions = index == 0 ? ["DEBUG"] : []
         let conditionSetting =
             conditions.isEmpty
             ? "" : "SWIFT_ACTIVE_COMPILATION_CONDITIONS = \"\(conditions.joined(separator: " "))\";"

@@ -14,15 +14,11 @@
 
 <p align="center">
   <a href="https://github.com/DjangoCustard225/Vesper/releases/latest/download/Vesper.ipa">Download Vesper</a>
-  &emsp;
-  <a href="https://github.com/DjangoCustard225/Vesper/releases/latest/download/VesperGo.ipa">Download Vesper Go</a>
 </p>
 
 Vesper brings movie and TV discovery, Stremio add-ons and playback together on iPhone and iPad. Find something to watch, save titles for later and pick up where you left off.
 
-## Vesper or Vesper Go?
-
-**Vesper** includes mpv and AVPlayer. You can also use Infuse, Outplayer or VLC. **Vesper Go** plays only through the external player you select. Both apps install separately.
+**Vesper** includes AVPlayer. You can also use Infuse, Outplayer or VLC.
 
 For Dolby Vision and HDR playback, choose AVPlayer.
 
@@ -41,16 +37,16 @@ For Dolby Vision and HDR playback, choose AVPlayer.
 
 ## Get started
 
-1. Download the [latest release](https://github.com/DjangoCustard225/Vesper/releases/latest) for **iOS 27 or later**. The unsigned IPAs need signing before installation.
+1. Download the [latest release](https://github.com/DjangoCustard225/Vesper/releases/latest) for **iOS 27 or later**. The unsigned IPA needs signing before installation.
 2. Add your TMDB API key in **Settings → TMDB**. [Get an API key](https://www.themoviedb.org/settings/api).
 3. Add a provider in **Settings → Add-ons** with its manifest URL or `stremio://` link.
 4. Open a title and tap **Play** to choose a source. Set your player in **Settings → Video Player**.
 
-If you use Vesper or Vesper Go in LiveContainer, enable **Settings → Video Player → Show all external players**.
+If you use Vesper in LiveContainer, enable **Settings → Video Player → Show all external players**.
 
 For optional TV show metadata, add your TVDB API key and subscriber PIN if required in **Settings → TVDB**. TVDB becomes preferred for shows with TMDB as a fallback. Some keys require a [TVDB subscription](https://thetvdb.com/subscribe).
 
-Connect Trakt in **Settings → Trakt** to import watch history and sync watched status. Playback in Vesper’s built-in players is reported to Trakt. External playback isn’t tracked.
+Connect Trakt in **Settings → Trakt** to import watch history and sync watched status. Playback in Vesper’s built-in player is reported to Trakt. External playback isn’t tracked.
 
 Vesper needs providers with playable web streams. It doesn’t support torrent downloads.
 
@@ -60,6 +56,6 @@ Your library and resume points stay on your device. Credentials and add-on setti
 
 ## Credits
 
-Vesper is independent of Stremio. Built-in playback uses [MPVKit](https://github.com/mpvkit/MPVKit) or [AetherEngine](https://github.com/superuser404notfound/AetherEngine). Third-party notices are in **Settings → About → Credits**.
+Vesper is independent of Stremio. Built-in playback uses [AetherEngine](https://github.com/superuser404notfound/AetherEngine). Third-party notices are in **Settings → About → Credits**.
 
 Vesper is licensed under MIT. Third-party components keep their own licenses. See [LICENSE](LICENSE).

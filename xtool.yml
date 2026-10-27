@@ -4,5 +4,4 @@ infoPath: Vesper/Info.plist
 iconPath: Vesper/Assets.xcassets/AppIcon.appiconset/AppIcon.png
 resources:
   - Vesper/PrivacyInfo.xcprivacy
-  - Vesper/Resources/MPVKit-LICENSE.txt
   - Vesper/Resources/AetherEngine-LICENSE.txt

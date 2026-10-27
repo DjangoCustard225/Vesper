@@ -3,48 +3,16 @@ import UIKit
 import VesperCore
 
 struct BuiltInPlayerView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
     let request: PlaybackRequest
     let gesturePreferences: PlayerGesturePreferences
     var players: [VideoPlayer]
     let closePlayer: () -> Void
     let choosePlayer: (VideoPlayer) -> Void
-
-    var body: some View {
-        switch request.engine {
-        case .mpv:
-            PlayerControls(
-                request: request, gesturePreferences: gesturePreferences, players: players,
-                controller: MPVPlaybackController(
-                    url: request.url, resumeSeconds: request.resumeSeconds, isLive: request.isLive,
-                    onProgress: request.onProgress, onScrobble: request.onScrobble),
-                closePlayer: closePlayer, choosePlayer: choosePlayer
-            ) { MPVVideoSurface(controller: $0) }
-        case .aether:
-            PlayerControls(
-                request: request, gesturePreferences: gesturePreferences, players: players,
-                controller: AetherPlaybackController(
-                    url: request.url, resumeSeconds: request.resumeSeconds,
-                    isLive: request.isLive, onProgress: request.onProgress, onScrobble: request.onScrobble),
-                closePlayer: closePlayer, choosePlayer: choosePlayer
-            ) { AetherVideoSurface(controller: $0) }
-        }
-    }
-}
-
-private struct PlayerControls<Controller: PlaybackControlling, Surface: View>: View {
-    @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.accessibilityVoiceOverEnabled) private var voiceOver
-    let request: PlaybackRequest
-    let gesturePreferences: PlayerGesturePreferences
-    let players: [VideoPlayer]
-    let closePlayer: () -> Void
-    let choosePlayer: (VideoPlayer) -> Void
-    @State private var controller: Controller
-    private let surface: (Controller) -> Surface
-
-    private var currentPlayer: VideoPlayer { request.engine == .aether ? .aether : .builtIn }
+    @State private var controller: AetherPlaybackController
     @State private var controlsVisible = true
+    @State private var applicationActive = UIApplication.shared.applicationState == .active
     @State private var scrubbing = false
     @State private var scrubFraction: Double = 0
     @State private var hideTask: Task<Void, Never>?
@@ -52,20 +20,38 @@ private struct PlayerControls<Controller: PlaybackControlling, Surface: View>: V
     @State private var interactionID = 0
     @State private var controlFrames: [CGRect] = []
     @State private var adjustments = PlayerSystemAdjustments()
+    @State private var nextEpisode: Episode?
+    @State private var intro = IntroSkipController()
+    private var introLookupID: String { request.id.uuidString + ":" + String(request.introSkippingEnabled()) }
+
+    private var introTarget: Double? {
+        guard request.introSkippingEnabled(), !request.isLive, applicationActive,
+            controller.pictureInPictureState == .inactive,
+            !scrubbing, !showingOptions, controller.error == nil, !controller.hasEnded
+        else { return nil }
+        return intro.segment?.seekFraction(in: controller.timeline)
+    }
+
+    private var offersNextEpisode: Bool {
+        nextEpisode != nil && request.onNextEpisode != nil && !request.isLive
+            && UpNext.shouldOffer(timeline: controller.timeline, ended: controller.hasEnded)
+    }
 
     init(
         request: PlaybackRequest, gesturePreferences: PlayerGesturePreferences, players: [VideoPlayer],
-        controller: Controller, closePlayer: @escaping () -> Void,
-        choosePlayer: @escaping (VideoPlayer) -> Void,
-        @ViewBuilder surface: @escaping (Controller) -> Surface
+        closePlayer: @escaping () -> Void, choosePlayer: @escaping (VideoPlayer) -> Void,
+        restorePresentation: @escaping PlaybackRestoration
     ) {
         self.request = request
         self.gesturePreferences = gesturePreferences
         self.players = players
         self.closePlayer = closePlayer
         self.choosePlayer = choosePlayer
-        self.surface = surface
-        _controller = State(initialValue: controller)
+        _controller = State(
+            initialValue: AetherPlaybackController(
+                url: request.url, resumeSeconds: request.resumeSeconds, isLive: request.isLive,
+                onProgress: request.onProgress, onScrobble: request.onScrobble,
+                restorePresentation: restorePresentation))
     }
 
     var body: some View {
@@ -87,42 +73,74 @@ private struct PlayerControls<Controller: PlaybackControlling, Surface: View>: V
         .onChange(of: controller.isPlaying) { _, _ in scheduleHide() }
         .onChange(of: controller.isBuffering) { _, _ in scheduleHide() }
         .onChange(of: controller.isBoosting) { _, _ in scheduleHide() }
+        .onChange(of: controller.pictureInPictureState) { _, state in
+            if state != .inactive { hideControls() } else if applicationActive { revealControls() }
+        }
         .sensoryFeedback(.impact(weight: .medium), trigger: controller.isBoosting) {
             wasBoosting, isBoosting in
             !wasBoosting && isBoosting
         }
         .onChange(of: controller.hasEnded) { _, ended in if ended { revealControls() } }
+        .onChange(of: offersNextEpisode) { _, offered in if offered { revealControls() } }
+        .task(id: request.id) {
+            guard !request.isLive, let load = request.loadUpNext else { return }
+            do {
+                let next = try await load()
+                guard !Task.isCancelled else { return }
+                nextEpisode = next
+            } catch {
+                // Episode discovery is optional and must never interrupt current playback.
+            }
+        }
+        .task(id: introLookupID) {
+            guard request.introSkippingEnabled(), !request.isLive else { intro.cancel(); return }
+            await intro.load(request.loadIntroSegment)
+        }
         .onChange(of: controller.error) { _, error in if error != nil { adjustments.restoreBrightness() } }
-        .onChange(of: scenePhase) { _, phase in
-            if phase != .active { controller.endBoost() }
-            if phase != .active, scrubbing {
-                controller.seek(fraction: scrubFraction)
-                scrubbing = false
-            }
-            if phase == .background {
-                controller.pause()
-                revealControls()
-            }
+        .onAppear {
+            applicationActive = UIApplication.shared.applicationState == .active
+            if applicationActive { revealControls() }
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willResignActiveNotification)) {
             _ in
-            controller.endBoost()
+            applicationActive = false
+            prepareForBackground()
         }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)) {
             _ in
-            if scrubbing {
-                controller.seek(fraction: scrubFraction)
-                scrubbing = false
-            }
-            controller.pause()
+            applicationActive = false
+            prepareForBackground()
+            controller.enteredBackground()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) {
+            _ in
+            applicationActive = true
+            controller.enteredForeground()
             revealControls()
         }
         .onChange(of: voiceOver) { _, _ in scheduleHide() }
         .onDisappear {
+            intro.cancel()
             hideTask?.cancel()
             controller.stop()
             adjustments.restoreBrightness()
         }
+    }
+
+    private func prepareForBackground() {
+        controller.endBoost()
+        if scrubbing {
+            controller.seek(fraction: scrubFraction)
+            scrubbing = false
+        }
+        hideControls()
+    }
+
+    private func hideControls() {
+        hideTask?.cancel()
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { controlsVisible = false }
     }
 
     private func playerCanvas(size: CGSize, videoCenter: CGPoint) -> some View {
@@ -134,7 +152,9 @@ private struct PlayerControls<Controller: PlaybackControlling, Surface: View>: V
                 .allowsHitTesting(false).accessibilityHidden(true)
             adjustmentCapture.frame(width: 1, height: 1)
                 .allowsHitTesting(false).accessibilityHidden(true)
-            surface(controller).ignoresSafeArea()
+            holdCapture.frame(width: 1, height: 1)
+                .allowsHitTesting(false).accessibilityHidden(true)
+            AetherVideoSurface(controller: controller).ignoresSafeArea()
                 .allowsHitTesting(false).accessibilityHidden(true)
             if controlsVisible, controller.error == nil {
                 Color.black.opacity(0.2).ignoresSafeArea().allowsHitTesting(false)
@@ -144,6 +164,25 @@ private struct PlayerControls<Controller: PlaybackControlling, Surface: View>: V
                 failure(error).padding(24).playbackControl()
             } else if controlsVisible {
                 controls(size: size, videoCenter: videoCenter).transition(.opacity)
+            }
+            if introTarget != nil {
+                VStack {
+                    Spacer()
+                    HStack {
+                        Button {
+                            guard let target = introTarget else { return }
+                            controller.endBoost()
+                            controller.seek(fraction: target)
+                            revealControls()
+                        } label: {
+                            Label("Skip Intro", systemImage: "forward.end.fill")
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 16).padding(.vertical, 12)
+                        }.buttonStyle(.plain).glassEffect(.regular.interactive(), in: .capsule)
+                            .playbackControl()
+                        Spacer()
+                    }
+                }.padding(.horizontal, 24).padding(.bottom, 76)
             }
             if controller.isBoosting {
                 VStack {
@@ -159,12 +198,13 @@ private struct PlayerControls<Controller: PlaybackControlling, Surface: View>: V
     private func gestureSurface<Content: View>(_ content: Content) -> some View {
         content.contentShape(Rectangle())
             .onTapGesture { toggleControls() }
-            .gesture(holdGesture)
     }
 
-    private var holdGesture: PlayerHoldGesture {
-        PlayerHoldGesture(
-            enabled: gesturePreferences.holdFor2x && controller.error == nil,
+    private var holdCapture: PlayerHoldCapture {
+        PlayerHoldCapture(
+            enabled: gesturePreferences.holdFor2x && controller.error == nil
+                && !scrubbing && !showingOptions && applicationActive
+                && controller.pictureInPictureState == .inactive,
             excludedFrames: controlFrames
         ) { held in
             if held, !scrubbing, !showingOptions,
@@ -179,14 +219,17 @@ private struct PlayerControls<Controller: PlaybackControlling, Surface: View>: V
 
     private var adjustmentCapture: PlayerAdjustmentCapture {
         PlayerAdjustmentCapture(
-            brightnessEnabled: gesturePreferences.brightnessSwipe && controller.error == nil,
-            volumeEnabled: gesturePreferences.volumeSwipe && controller.error == nil,
+            brightnessEnabled: gesturePreferences.brightnessSwipe && controller.error == nil
+                && !controller.isBoosting,
+            volumeEnabled: gesturePreferences.volumeSwipe && controller.error == nil
+                && !controller.isBoosting,
             began: { side in
-                controller.endBoost()
+                guard !controller.isBoosting else { return }
                 adjustments.begin(side)
                 hideTask?.cancel()
             },
             changed: { side, fraction in
+                guard !controller.isBoosting else { return }
                 adjustments.adjust(side, fraction: fraction)
             }, ended: { scheduleHide() })
     }
@@ -211,6 +254,9 @@ private struct PlayerControls<Controller: PlaybackControlling, Surface: View>: V
                 Spacer(minLength: 16)
                 VStack(spacing: 12) {
                     HStack {
+                        if introTarget == nil, offersNextEpisode, let nextEpisode {
+                            upNextButton(nextEpisode).playbackControl()
+                        }
                         Spacer()
                         PlaybackSettingsMenu(menu: settingsMenu()) { presented in
                             showingOptions = presented
@@ -259,6 +305,25 @@ private struct PlayerControls<Controller: PlaybackControlling, Surface: View>: V
             }.position(videoCenter)
         }
         .frame(width: size.width, height: size.height)
+    }
+
+    private func upNextButton(_ episode: Episode) -> some View {
+        Button {
+            request.onNextEpisode?(episode)
+            close()
+        } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                Label("Up Next", systemImage: "play.rectangle.on.rectangle")
+                    .font(.subheadline.weight(.semibold))
+                Text(episode.label + " · " + episode.displayTitle)
+                    .font(.caption).foregroundStyle(.white.opacity(0.75)).lineLimit(1)
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            .frame(maxWidth: 280, alignment: .leading)
+        }.buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 18))
+            .accessibilityLabel("Up Next, \(episode.label), \(episode.displayTitle)")
+            .accessibilityHint("Choose a stream for this episode")
     }
 
     private var timeline: some View {
@@ -346,7 +411,7 @@ private struct PlayerControls<Controller: PlaybackControlling, Surface: View>: V
         }
         let players = UIMenu(
             options: .displayInline,
-            children: self.players.filter { $0 != currentPlayer }.map { player in
+            children: self.players.filter { $0 != .aether }.map { player in
                 UIAction(
                     title: "Open in \(player.title)", image: UIImage(systemName: "arrow.up.right.square")
                 ) { _ in switchPlayer(player) }
@@ -370,7 +435,7 @@ private struct PlayerControls<Controller: PlaybackControlling, Surface: View>: V
             Image(systemName: "play.slash").font(.largeTitle)
             Text("Unable to play").font(.title2.bold())
             Text(message).font(.body).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            Button("Try again") { switchPlayer(currentPlayer) }.buttonStyle(.glassProminent).foregroundStyle(
+            Button("Try again") { switchPlayer(.aether) }.buttonStyle(.glassProminent).foregroundStyle(
                 .black)
             if players.contains(where: { !$0.isInternal }) {
                 Menu("Open in another player") {
@@ -417,6 +482,7 @@ private struct PlayerControls<Controller: PlaybackControlling, Surface: View>: V
     }
 
     private func revealControls() {
+        guard applicationActive, controller.pictureInPictureState == .inactive else { return }
         withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { controlsVisible = true }
         scheduleHide()
     }
@@ -424,7 +490,8 @@ private struct PlayerControls<Controller: PlaybackControlling, Surface: View>: V
     private func scheduleHide() {
         hideTask?.cancel()
         guard controller.isPlaying, !controller.isBuffering, !controller.isBoosting,
-            !scrubbing, !showingOptions, !voiceOver
+            !scrubbing, !showingOptions, !voiceOver,
+            applicationActive, controller.pictureInPictureState == .inactive
         else { return }
         let interaction = interactionID
         hideTask = Task {

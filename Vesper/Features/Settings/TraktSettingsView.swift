@@ -78,7 +78,6 @@ struct TraktSettingsView: View {
                         .onChange(of: trakt.syncHistory) { _, enabled in
                             if enabled { Task { await store.syncTrakt(force: true) } }
                         }
-                    #if !VESPER_GO
                     Toggle("Scrobble playback", isOn: $trakt.scrobbling)
                         .onChange(of: trakt.scrobbling) { _, enabled in
                             if enabled { Task { await store.syncTrakt(force: true) } }
@@ -86,13 +85,10 @@ struct TraktSettingsView: View {
                     if let error = trakt.scrobbleError {
                         TraktIssueNotice(title: "Scrobbling needs attention", message: error)
                     }
-                    #endif
                 } header: {
                     Text("Preferences")
                 } footer: {
-                    #if !VESPER_GO
-                    Text("Scrobbling tracks playback in Vesper’s built-in players.")
-                    #endif
+                    Text("Scrobbling tracks playback in Vesper’s built-in player.")
                 }
             }
             Section("Account management") {
@@ -232,13 +228,8 @@ private struct TraktSignInSheet: View {
                     }.frame(minHeight: 44)
                 }.frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
             }.font(.subheadline)
-            #if VESPER_GO
-            Text("Connecting shares watch history with Trakt.")
-                .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            #else
             Text("Connecting shares watch history and enabled playback activity with Trakt.")
                 .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            #endif
         }
     }
 
@@ -296,9 +287,7 @@ private struct TraktPendingChangesView: View {
         switch change.action {
         case .watched: "Mark as watched"
         case .unwatched: "Mark as unwatched"
-        #if !VESPER_GO
         case .stopped: "Playback completion"
-        #endif
         }
     }
 

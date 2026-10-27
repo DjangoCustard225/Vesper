@@ -1,27 +1,20 @@
 import Foundation
 
 public enum VideoPlayer: String, CaseIterable, Identifiable, Codable, Sendable {
-    #if !VESPER_GO
-    case builtIn, aether
-    #endif
+    case aether
     case vlc, infuse, outplayer
 
     public var id: String { rawValue }
 
     public var title: String {
         switch self {
-        #if !VESPER_GO
-        case .builtIn: "mpv"
         case .aether: "AVPlayer"
-        #endif
         case .vlc: "VLC"
         case .infuse: "Infuse"
         case .outplayer: "Outplayer"
         }
     }
-    #if !VESPER_GO
-    public var isInternal: Bool { self == .builtIn || self == .aether }
-    #endif
+    public var isInternal: Bool { self == .aether }
 
     public static var externalPlayers: [VideoPlayer] { [.vlc, .infuse, .outplayer] }
 
@@ -30,9 +23,7 @@ public enum VideoPlayer: String, CaseIterable, Identifiable, Codable, Sendable {
         case .vlc: URL(string: "vlc-x-callback://x-callback-url/stream")
         case .infuse: URL(string: "infuse://x-callback-url/play")
         case .outplayer: URL(string: "outplayer://x-callback-url/play")
-        #if !VESPER_GO
-        case .builtIn, .aether: nil
-        #endif
+        case .aether: nil
         }
     }
 
@@ -50,16 +41,9 @@ public enum VideoPlayer: String, CaseIterable, Identifiable, Codable, Sendable {
         return players.first(where: { $0 == .infuse })
             ?? players.first(where: { $0.detectionURL != nil }) ?? players.first ?? self
     }
-    #if VESPER_GO
     public static func preferred(storedValue: String?) -> VideoPlayer {
-        storedValue.flatMap(VideoPlayer.init(rawValue:)) ?? .infuse
+        storedValue.flatMap(VideoPlayer.init(rawValue:)) ?? .aether
     }
-    #else
-    public static func preferred(storedValue: String?) -> VideoPlayer {
-        let saved = storedValue.flatMap(VideoPlayer.init(rawValue:))
-        return saved ?? .builtIn
-    }
-    #endif
 
     public func launchURL(for stream: URL) throws -> URL {
         _ = try AddonURL.http(stream.absoluteString)

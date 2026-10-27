@@ -2,12 +2,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 task_python="${VESPER_PYTHON:-$(command -v python3)}"
-task_verification=()
-case "${1:-vesper}" in
-    vesper) task_scheme=Vesper ;;
-    go) task_scheme=VesperGo; task_verification=(--go) ;;
-    *) printf '%s\n' 'Usage: Scripts/BuildXcodeIPA.sh [vesper|go]' >&2; exit 2 ;;
-esac
+if (( $# > 1 )) || [[ "${1:-vesper}" != "vesper" ]]; then
+    printf '%s\n' 'Usage: Scripts/BuildXcodeIPA.sh [vesper]' >&2
+    exit 2
+fi
+task_scheme=Vesper
 task_build="$PWD/.build/xcode/$task_scheme"
 task_archive="$task_build/$task_scheme.xcarchive"
 mkdir -p "$task_build" xtool
@@ -25,12 +24,7 @@ mkdir -p "$task_staging/Payload"
 ditto "$task_archive/Products/Applications/$task_scheme.app" "$task_staging/Payload/$task_scheme.app"
 task_ipa="$task_staging/$task_scheme.ipa"
 (cd "$task_staging" && /usr/bin/zip -qry0 "$task_ipa" Payload)
-if ((${#task_verification[@]})); then
-    "$task_python" -B Scripts/OptimizeIPA.py "$task_ipa" "${task_verification[@]}"
-    "$task_python" -B Scripts/VerifyIPA.py "$task_ipa" --native-icon "${task_verification[@]}"
-else
-    "$task_python" -B Scripts/OptimizeIPA.py "$task_ipa"
-    "$task_python" -B Scripts/VerifyIPA.py "$task_ipa" --native-icon
-fi
+"$task_python" -B Scripts/OptimizeIPA.py "$task_ipa"
+"$task_python" -B Scripts/VerifyIPA.py "$task_ipa" --native-icon
 mv "$task_ipa" "xtool/$task_scheme.ipa"
 mv "$task_staging/$task_scheme.sha256" "xtool/$task_scheme.sha256"

@@ -12,11 +12,14 @@ struct Artwork: View {
     let url: String?
     var alignment: Alignment = .center
     var retainsPreviousImage = false
+    var decodeSize: ArtworkDecodeSize? = nil
 
     private var imageURL: URL? { url.flatMap { try? AddonURL.http($0) } }
 
     var body: some View {
-        CachedArtworkImage(url: imageURL, fadesIn: true, retainsPreviousImage: retainsPreviousImage) {
+        CachedArtworkImage(
+            url: imageURL, decodeSize: decodeSize, fadesIn: true, retainsPreviousImage: retainsPreviousImage
+        ) {
             phase in
             switch phase {
             case .success(let image):

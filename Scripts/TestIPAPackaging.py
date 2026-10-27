@@ -7,7 +7,7 @@ from unittest.mock import patch
 import zipfile
 
 import OptimizeIPA
-from VerifyIPA import LinkeditAlignmentError, arm64_commands
+from VerifyIPA import LinkeditAlignmentError, arm64_commands, verify_player_dependencies
 
 
 def executable(symoff=64, stroff=80, strsize=16):
@@ -18,6 +18,18 @@ def executable(symoff=64, stroff=80, strsize=16):
 
 
 class PackagingTests(unittest.TestCase):
+    def test_removed_engine_cannot_be_statically_linked_or_imported(self):
+        for commands in [{"symbols": {"_mpv_create"}}, {"imports": {"_mpv_initialize": 1}},
+                         {"exports": {"_mpv_command_async"}}, {"symbols": {"_$sMPVPlaybackController"}}]:
+            with self.assertRaisesRegex(ValueError, "Removed mpv"):
+                verify_player_dependencies(commands)
+        verify_player_dependencies({"symbols": {"_$sAetherPlaybackController", "_OBJC_CLASS_$_MPVolumeView"}})
+
+    def test_removed_engine_frameworks_cannot_be_packaged(self):
+        for name in ["Payload/Vesper.app/Frameworks/Libmpv.framework/Libmpv", "MPVKit-LICENSE.txt", "MoltenVK.framework"]:
+            with self.assertRaisesRegex(ValueError, "Removed mpv"):
+                verify_player_dependencies({}, [name])
+
     def test_aligned_tables_are_accepted(self):
         arm64_commands(executable())
 
@@ -37,8 +49,8 @@ class PackagingTests(unittest.TestCase):
         original = executable()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            ipa = root / "VesperGo.ipa"
-            name = "Payload/VesperGo.app/VesperGo"
+            ipa = root / "Vesper.ipa"
+            name = "Payload/Vesper.app/Vesper"
             with zipfile.ZipFile(ipa, "w") as archive:
                 archive.writestr(name, original)
 
@@ -48,7 +60,7 @@ class PackagingTests(unittest.TestCase):
             with patch.object(OptimizeIPA, "verify"), \
                     patch.object(OptimizeIPA, "strip_command", return_value=["strip"]), \
                     patch.object(OptimizeIPA.subprocess, "run", side_effect=strip):
-                OptimizeIPA.optimize(ipa, root, go=True)
+                OptimizeIPA.optimize(ipa, root)
             with zipfile.ZipFile(ipa) as archive:
                 self.assertEqual(archive.read(name), original)
                 arm64_commands(archive.read(name))

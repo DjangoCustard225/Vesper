@@ -3,49 +3,93 @@ import MediaPlayer
 import SwiftUI
 import UIKit
 
-struct PlayerHoldGesture: UIGestureRecognizerRepresentable {
+struct PlayerHoldCapture: UIViewRepresentable {
     let enabled: Bool
     let excludedFrames: [CGRect]
     let holdChanged: (Bool) -> Void
 
-    func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
-        Coordinator(excludedFrames: excludedFrames)
+    func makeUIView(context: Context) -> PlayerHoldCaptureView {
+        let view = PlayerHoldCaptureView(frame: .zero)
+        view.configure(self)
+        return view
     }
 
-    func makeUIGestureRecognizer(context: Context) -> UILongPressGestureRecognizer {
-        let hold = UILongPressGestureRecognizer()
+    func updateUIView(_ view: PlayerHoldCaptureView, context: Context) { view.configure(self) }
+
+    static func dismantleUIView(_ view: PlayerHoldCaptureView, coordinator: ()) { view.detach() }
+}
+
+@MainActor final class PlayerHoldCaptureView: UIView, UIGestureRecognizerDelegate {
+    private let hold = UILongPressGestureRecognizer()
+    private weak var installedWindow: UIWindow?
+    private weak var playerView: UIView?
+    private var excludedFrames: [CGRect] = []
+    private var holdChanged: ((Bool) -> Void)?
+    private var holding = false
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
         hold.minimumPressDuration = 0.25
         hold.allowableMovement = 20
         hold.numberOfTouchesRequired = 1
-        hold.delegate = context.coordinator
-        hold.isEnabled = enabled
-        return hold
+        hold.delegate = self
+        hold.addTarget(self, action: #selector(handleHold(_:)))
     }
 
-    func updateUIGestureRecognizer(_ recognizer: UILongPressGestureRecognizer, context: Context) {
-        context.coordinator.excludedFrames = excludedFrames
-        recognizer.isEnabled = enabled
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard installedWindow !== window else { return }
+        detach()
+        installedWindow = window
+        var responder: UIResponder? = self
+        while let current = responder {
+            if let controller = current as? UIViewController {
+                playerView = controller.view
+                break
+            }
+            responder = current.next
+        }
+        window?.addGestureRecognizer(hold)
     }
 
-    func handleUIGestureRecognizerAction(_ recognizer: UILongPressGestureRecognizer, context: Context) {
+    func configure(_ capture: PlayerHoldCapture) {
+        excludedFrames = capture.excludedFrames
+        holdChanged = capture.holdChanged
+        if !capture.enabled { finishHold() }
+        hold.isEnabled = capture.enabled
+    }
+
+    func detach() {
+        finishHold()
+        installedWindow?.removeGestureRecognizer(hold)
+        installedWindow = nil
+        playerView = nil
+    }
+
+    private func finishHold() {
+        guard holding else { return }
+        holding = false
+        holdChanged?(false)
+    }
+
+    @objc private func handleHold(_ recognizer: UILongPressGestureRecognizer) {
         switch recognizer.state {
-        case .began: holdChanged(true)
-        case .ended, .cancelled, .failed: holdChanged(false)
+        case .began:
+            holding = true
+            holdChanged?(true)
+        case .ended, .cancelled, .failed: finishHold()
         default: break
         }
     }
 
-    @MainActor final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        var excludedFrames: [CGRect]
-
-        init(excludedFrames: [CGRect]) {
-            self.excludedFrames = excludedFrames
-        }
-
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool
-        {
-            allowsPlayerGestureTouch(touch, excluding: excludedFrames)
-        }
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard let playerView, let touchedView = touch.view,
+            touchedView.isDescendant(of: playerView)
+        else { return false }
+        return allowsPlayerGestureTouch(touch, excluding: excludedFrames)
     }
 }
 
@@ -228,13 +272,6 @@ struct PlayerAdjustmentCapture: UIViewRepresentable {
         guard pendingSide == .brightness ? brightnessEnabled : volumeEnabled else { return false }
         let offset = pan.translation(in: window)
         return abs(offset.y) >= abs(offset.x) * 0.8
-    }
-
-    func gestureRecognizer(
-        _ gestureRecognizer: UIGestureRecognizer,
-        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
-    ) -> Bool {
-        otherGestureRecognizer is UILongPressGestureRecognizer
     }
 }
 

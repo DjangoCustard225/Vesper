@@ -60,15 +60,19 @@ public actor ArtworkDataClient {
             for: url.absoluteString, priority: priority,
             onPromotion: { await limiter.promote(url.absoluteString) }
         ) { demand in
-            let data = try await limiter.run(key: url.absoluteString, demand: demand) {
+            let queued = ArtworkTimer()
+            let (data, queueTime) = try await limiter.run(key: url.absoluteString, demand: demand) {
+                let queueTime = queued.milliseconds
                 let (data, response) = try await HTTPTransport(session: session, requestTimeout: 20)
                     .data(for: URLRequest(url: url), operation: .artwork)
                 try Task.checkCancellation()
                 guard (200..<300).contains(response.statusCode), !data.isEmpty else {
                     throw URLError(.badServerResponse)
                 }
-                return data
+                return (data, queueTime)
             }
+            await DiagnosticRecorder.shared.recordArtwork(
+                .downloadQueue, milliseconds: queueTime, priority: demand.priority)
             try Task.checkCancellation()
             try await self.finished(url, data: data, token: token)
             return data

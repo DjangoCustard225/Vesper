@@ -5,11 +5,11 @@ import tempfile
 
 root = Path(__file__).resolve().parent.parent
 playback = root / "Vesper/Features/Playback"
-reporter = (root / "Core/Sources/VesperCore/TraktPlaybackReporter.swift").read_text().split("/// Serializes delivery")[0] + "\n#endif\n"
+reporter = (root / "Core/Sources/VesperCore/TraktPlaybackReporter.swift").read_text().split("/// Serializes delivery")[0] + "\n"
 action = next(line for line in (root / "Core/Sources/VesperCore/TraktModels.swift").read_text().splitlines() if line.startswith("public enum TraktScrobbleAction"))
 controller = (playback / "AetherPlaybackController.swift").read_text()
 methods = []
-for name in ["togglePlayback", "pause", "setSpeed", "beginBoost", "endBoost", "applyPlaybackRate", "reportProgress", "reportScrobble"]:
+for name in ["togglePlayback", "pause", "seek", "setSpeed", "beginBoost", "endBoost", "applyPlaybackRate", "reportProgress", "reportScrobble"]:
     start = controller.index("    private func " + name + "(") if "    private func " + name + "(" in controller else controller.index("    func " + name + "(")
     body = controller.index("{", start)
     depth, end = 1, body + 1

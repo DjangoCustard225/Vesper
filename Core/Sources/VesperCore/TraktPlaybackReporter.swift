@@ -1,4 +1,3 @@
-#if !VESPER_GO
 import Foundation
 
 public struct TraktPlaybackSample: Equatable, Sendable {
@@ -166,4 +165,3 @@ public struct TraktPlaybackReporter: Sendable {
         return min(300, baseDelay * pow(2, Double(attempt - 1)))
     }
 }
-#endif

@@ -21,6 +21,8 @@ final class AetherPlaybackController {
     private(set) var fillsScreen = false
     private(set) var subtitleCues: [SubtitleCue] = []
     private(set) var subtitleTime: Double = 0
+    let pictureInPicture = NativePictureInPicture()
+    var pictureInPictureState: AutomaticPictureInPicture.State { pictureInPicture.state }
     private(set) var videoAspect: CGFloat = 16 / 9
 
     @ObservationIgnored private(set) var engine: AetherEngine?
@@ -41,7 +43,9 @@ final class AetherPlaybackController {
     @ObservationIgnored private var nativeAudioOptions: [Int32: AVMediaSelectionOption] = [:]
     @ObservationIgnored private var stopped = false
     @ObservationIgnored private var loaded = false
-    @ObservationIgnored private var ownsAudioSession = false
+    @ObservationIgnored private var audioSessionLease: UUID?
+    private var ownsAudioSession: Bool { audioSessionLease != nil }
+    @ObservationIgnored private let restorePresentation: PlaybackRestoration?
     @ObservationIgnored private var previousIdleTimer = false
     @ObservationIgnored private var wantsPlayback = true
     @ObservationIgnored private var progressReporter = PlaybackProgressReporter()
@@ -50,6 +54,7 @@ final class AetherPlaybackController {
         url: URL, resumeSeconds: Double = 0, isLive: Bool = false,
         onProgress: (@MainActor (PlaybackProgressUpdate) -> Void)? = nil,
         onScrobble: (@MainActor (TraktScrobbleEvent) -> Void)? = nil,
+        restorePresentation: PlaybackRestoration? = nil,
         clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime }
     ) {
         self.url = url
@@ -57,6 +62,7 @@ final class AetherPlaybackController {
         self.isLive = isLive
         self.onProgress = onProgress
         self.onScrobble = onScrobble
+        self.restorePresentation = restorePresentation
         self.clock = clock
     }
 
@@ -77,7 +83,8 @@ final class AetherPlaybackController {
         do {
             let engine = try AetherEngine()
             self.engine = engine
-            engine.backgroundPlaybackEnabled = false
+            engine.backgroundPlaybackEnabled = true
+            engine.ownsVideoNowPlayingSession = true
             engine.bind(view: surface)
             try activateAudio()
             engine.objectWillChange.debounce(for: .milliseconds(16), scheduler: RunLoop.main)
@@ -93,7 +100,7 @@ final class AetherPlaybackController {
         let audio = AVAudioSession.sharedInstance()
         try audio.setCategory(.playback, mode: .moviePlayback)
         try audio.setActive(true)
-        ownsAudioSession = true
+        audioSessionLease = PlaybackAudioOwnership.acquire()
     }
 
     private func load(at position: Double) {
@@ -114,8 +121,8 @@ final class AetherPlaybackController {
                 guard let self, !self.stopped else { return }
                 self.loaded = true
                 if self.wantsPlayback {
-                    engine.play()
                     self.applyPlaybackRate()
+                    engine.play()
                 }
                 self.synchronize()
             } catch is CancellationError {} catch {
@@ -140,12 +147,13 @@ final class AetherPlaybackController {
             load(at: 0)
             return
         }
-        if loaded && !engine.isSessionReady {
+        guard loaded else { return }
+        if !engine.isSessionReady {
             load(at: timeline.elapsed)
             return
         }
-        engine.play()
         applyPlaybackRate()
+        engine.play()
         synchronize()
     }
 
@@ -218,7 +226,7 @@ final class AetherPlaybackController {
     }
 
     private func applyPlaybackRate() {
-        guard !stopped, !hasEnded, error == nil else { return }
+        guard loaded, !stopped, !hasEnded, error == nil else { return }
         engine?.setRate(isBoosting ? PlaybackSpeed.boost : speed)
     }
 
@@ -226,6 +234,32 @@ final class AetherPlaybackController {
         guard !stopped else { return }
         fillsScreen = fill
         engine?.videoGravity = fill ? .resizeAspectFill : .resizeAspect
+    }
+
+    var externalPlaybackActive: Bool { engine?.currentAVPlayer?.isExternalPlaybackActive == true }
+
+    func setPictureInPicture(_ active: Bool) { engine?.pictureInPictureActive = active }
+
+    func enteredBackground() {
+        guard !stopped else { return }
+        pictureInPicture.configure(owner: self)
+        pictureInPicture.enteredBackground()
+    }
+
+    func enteredForeground() { pictureInPicture.enteredForeground() }
+
+    func restorePictureInPicturePresentation(completion: @escaping @MainActor (Bool) -> Void) {
+        guard !stopped, let restorePresentation else {
+            completion(false)
+            return
+        }
+        restorePresentation(completion)
+    }
+
+    func skipFromPictureInPicture(seconds: Double) async {
+        guard !stopped, error == nil else { return }
+        skip(seconds: seconds)
+        await seekTask?.value
     }
 
     func stop() {
@@ -236,21 +270,36 @@ final class AetherPlaybackController {
         isBoosting = false
         wantsPlayback = false
         isPlaying = false
+        cancelWork()
+        releaseEngine()
+        UIApplication.shared.isIdleTimerDisabled = previousIdleTimer
+    }
+
+    private func cancelWork() {
         loadTask?.cancel()
+        loadTask = nil
         seekTask?.cancel()
+        seekTask = nil
         nativeAudioTask?.cancel()
+        nativeAudioTask = nil
         nativeAudioItem = nil
         nativeAudioGroup = nil
         nativeAudioOptions = [:]
         subscriptions.removeAll()
         observers.forEach(NotificationCenter.default.removeObserver)
-        observers = []
-        engine?.stop()
-        engine = nil
-        UIApplication.shared.isIdleTimerDisabled = previousIdleTimer
-        if ownsAudioSession {
-            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-            ownsAudioSession = false
+        observers.removeAll()
+    }
+
+    private func releaseEngine() {
+        let engine = engine
+        let lease = audioSessionLease
+        self.engine = nil
+        audioSessionLease = nil
+        pictureInPicture.invalidate {
+            engine?.stop()
+            if let lease, PlaybackAudioOwnership.release(lease) {
+                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            }
         }
     }
 
@@ -288,6 +337,7 @@ final class AetherPlaybackController {
             applyPlaybackRate()
         }
         UIApplication.shared.isIdleTimerDisabled = isPlaying ? true : previousIdleTimer
+        pictureInPicture.configure(owner: self)
         reportProgress(force: hasEnded)
         reportScrobble()
     }
@@ -360,7 +410,8 @@ final class AetherPlaybackController {
         isBuffering = false
         isBoosting = false
         wantsPlayback = false
-        engine?.stop()
+        cancelWork()
+        releaseEngine()
         UIApplication.shared.isIdleTimerDisabled = previousIdleTimer
     }
 
@@ -371,8 +422,10 @@ final class AetherPlaybackController {
                 forName: AVAudioSession.didBecomeInactiveNotification, object: nil, queue: .main
             ) { [weak self] _ in
                 Task { @MainActor in
-                    self?.ownsAudioSession = false
-                    self?.pause()
+                    guard let self, !self.stopped else { return }
+                    if let lease = self.audioSessionLease { _ = PlaybackAudioOwnership.release(lease) }
+                    self.audioSessionLease = nil
+                    self.pause()
                 }
             })
         observers.append(

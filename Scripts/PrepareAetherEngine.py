@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+from AetherRateTransitions import apply_rate_patches
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = json.loads((ROOT / "Dependencies/AetherEngine/artifacts.json").read_text())
@@ -77,6 +78,8 @@ def prepare():
                 shutil.move(str(entry), target)
         marker.write_text(checksum + "\n")
         print(f"Prepared {name} {artifact['version']}", flush=True)
+
+    apply_rate_patches(ROOT / "Dependencies/AetherEngine")
 
 
 if __name__ == "__main__":

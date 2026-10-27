@@ -27,25 +27,17 @@ public final class DetailLoadingController {
     public private(set) var seasonError: String?
     public private(set) var seasonEpisodes: [Episode] = []
     @ObservationIgnored private let startPlayback: Bool
-    #if !VESPER_GO
-    @ObservationIgnored private var resumeRecord: WatchRecord?
-    #endif
+    @ObservationIgnored private let resumeRecord: WatchRecord?
     @ObservationIgnored private var didStartPlayback = false
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var enrichmentRequestID = UUID()
     @ObservationIgnored private var seasonRequestID = UUID()
 
-    public init(item: MediaItem, startPlayback: Bool = false) {
+    public init(item: MediaItem, startPlayback: Bool = false, resumeRecord: WatchRecord? = nil) {
         self.item = item
         self.startPlayback = startPlayback
-    }
-
-    #if !VESPER_GO
-    public convenience init(item: MediaItem, startPlayback: Bool = false, resumeRecord: WatchRecord?) {
-        self.init(item: item, startPlayback: startPlayback)
         self.resumeRecord = resumeRecord
     }
-    #endif
 
     public var media: MediaItem { full ?? item }
 
@@ -72,6 +64,7 @@ public final class DetailLoadingController {
         generation = UUID()
         let current = generation
         loading = true
+        defer { if generation == current { loading = false } }
         error = nil
         full = nil
         enrichment = nil
@@ -87,9 +80,7 @@ public final class DetailLoadingController {
         full = result
         error = failure
         loading = false
-        #if !VESPER_GO
         if season == nil { season = resumeRecord?.season }
-        #endif
         if season == nil { season = seasons.first(where: { $0 > 0 }) ?? seasons.first }
         if let enrich { await refreshEnrichment(using: enrich) }
     }
@@ -102,6 +93,9 @@ public final class DetailLoadingController {
         enrichmentRequestID = request
         enriching = true
         metadataError = nil
+        defer {
+            if generation == current && enrichmentRequestID == request { enriching = false }
+        }
         do {
             let result = try await fetch(original)
             guard !Task.isCancelled, generation == current, enrichmentRequestID == request else { return }
@@ -117,7 +111,6 @@ public final class DetailLoadingController {
                 metadataError = error.localizedDescription
             }
         }
-        if generation == current && enrichmentRequestID == request { enriching = false }
     }
 
     public func loadSeason(
@@ -131,6 +124,9 @@ public final class DetailLoadingController {
         seasonLoading = false
         guard let enrichment, enrichment.mediaType == "tv", let season else { return }
         seasonLoading = true
+        defer {
+            if generation == current && seasonRequestID == request { seasonLoading = false }
+        }
         do {
             let videos = try await fetch(media, enrichment, season)
             guard !Task.isCancelled, generation == current, seasonRequestID == request,
@@ -142,7 +138,6 @@ public final class DetailLoadingController {
                 seasonError = error.localizedDescription
             }
         }
-        if generation == current && seasonRequestID == request { seasonLoading = false }
     }
 
     public func defaultPlayback() -> DetailPlaybackChoice {
@@ -159,14 +154,12 @@ public final class DetailLoadingController {
         else {
             return nil
         }
-        #if !VESPER_GO
         if let resumeRecord {
             didStartPlayback = true
             let id = resumeRecord.playbackID(for: media)
             let episode = (media.videos ?? []).first { MediaIdentity.videoID($0.id, for: media) == id }
             return DetailPlaybackChoice(id: id, title: resumeRecord.subtitle, embedded: episode?.streams)
         }
-        #endif
         if media.type != "series" || isLive || media.behaviorHints?.defaultVideoId != nil {
             didStartPlayback = true
             return defaultPlayback()

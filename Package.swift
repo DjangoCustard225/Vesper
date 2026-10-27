@@ -5,7 +5,7 @@ let package = Package(
     name: "Vesper", platforms: [.iOS("27.0")],
     products: [.library(name: "Vesper", targets: ["Vesper"])],
     dependencies: [
-        .package(path: "Core"), .package(path: "Dependencies/MPVKit"),
+        .package(path: "Core"),
         .package(path: "Dependencies/AetherEngine"),
     ],
     targets: [
@@ -13,7 +13,6 @@ let package = Package(
             name: "Vesper",
             dependencies: [
                 .product(name: "VesperCore", package: "Core"),
-                .product(name: "MPVKit", package: "MPVKit"),
                 .product(name: "AetherEngine", package: "AetherEngine"),
             ],
             path: "Vesper",

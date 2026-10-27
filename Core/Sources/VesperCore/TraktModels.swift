@@ -152,18 +152,14 @@ public struct TraktWatchedEntry: Sendable {
 public struct TraktHistoryChange: Codable, Identifiable, Sendable {
     public enum Action: String, Codable, Sendable {
         case watched, unwatched
-        #if !VESPER_GO
         case stopped
-        #endif
     }
     public let id: UUID
     public let media: MediaItem
     public let videoID: String?
     public let action: Action
     public let date: Date
-    #if !VESPER_GO
     public private(set) var progress: Double? = nil
-    #endif
 
     public init(
         id: UUID = UUID(), media: MediaItem, videoID: String? = nil, action: Action,
@@ -181,7 +177,6 @@ public struct TraktHistoryChange: Codable, Identifiable, Sendable {
         self.date = date
     }
 
-    #if !VESPER_GO
     public init(
         id: UUID = UUID(), media: MediaItem, videoID: String? = nil, action: Action,
         date: Date = Date(), progress: Double?
@@ -189,14 +184,11 @@ public struct TraktHistoryChange: Codable, Identifiable, Sendable {
         self.init(id: id, media: media, videoID: videoID, action: action, date: date)
         self.progress = progress
     }
-    #endif
 
     public var watched: Bool { action != .unwatched }
 }
 
-#if !VESPER_GO
 public enum TraktScrobbleAction: String, Sendable { case start, pause, stop }
-#endif
 
 public enum TraktError: Error, LocalizedError, Equatable {
     case notConnected, reconnect, invalidResponse, unidentifiedTitle, authorizationExpired, denied

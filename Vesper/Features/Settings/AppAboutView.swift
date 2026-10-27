@@ -37,14 +37,6 @@ struct CreditsView: View {
                         .foregroundStyle(.secondary)
                     Link("TheTVDB", destination: URL(string: "https://thetvdb.com")!)
                 }
-                #if !VESPER_GO
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("MPVKit").font(.headline)
-                    Text("Built-in playback uses MPVKit’s libmpv, licensed under LGPL 3.0 or later.")
-                        .foregroundStyle(.secondary)
-                    Link("Source code", destination: URL(string: "https://github.com/mpvkit/MPVKit")!)
-                    NavigationLink("License") { PlayerLicenseView(name: "MPVKit") }
-                }
                 VStack(alignment: .leading, spacing: 12) {
                     Text("AetherEngine").font(.headline)
                     Text(
@@ -56,13 +48,11 @@ struct CreditsView: View {
                         destination: URL(string: "https://github.com/superuser404notfound/AetherEngine")!)
                     NavigationLink("Licenses") { PlayerLicenseView(name: "AetherEngine") }
                 }
-                #endif
             }.frame(maxWidth: .infinity, alignment: .leading).padding(24)
         }.appBackground().navigationTitle("Credits").navigationBarTitleDisplayMode(.inline)
     }
 }
 
-#if !VESPER_GO
 private struct PlayerLicenseView: View {
     let name: String
 
@@ -78,4 +68,3 @@ private struct PlayerLicenseView: View {
             .appBackground().navigationTitle(name + " License").navigationBarTitleDisplayMode(.inline)
     }
 }
-#endif

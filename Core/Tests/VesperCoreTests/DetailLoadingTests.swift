@@ -31,6 +31,77 @@ private actor DetailGate {
             creators: [], rating: nil, voteCount: nil, imdbID: nil, seasons: [1, 2])
     }
 
+    private func waitForGate(_ gate: DetailGate, file: StaticString = #filePath, line: UInt = #line) async {
+        for _ in 0..<500 {
+            if await gate.waiting { return }
+            await Task.yield()
+        }
+        XCTFail("The request did not reach its gate", file: file, line: line)
+    }
+
+    func testCancelledMetadataDoesNotPublishAndClearsLoading() async {
+        let item = MediaItem(id: "tt1234567", type: "movie", name: "Movie")
+        let controller = DetailLoadingController(item: item), gate = DetailGate()
+        let request = Task {
+            await controller.load { item in
+                await gate.pause()
+                var stale = item
+                stale.description = "Cancelled"
+                return (stale, nil)
+            }
+        }
+        await waitForGate(gate)
+        request.cancel()
+        await gate.release()
+        await request.value
+        XCTAssertFalse(controller.loading)
+        XCTAssertNil(controller.full)
+        XCTAssertNil(controller.error)
+    }
+
+    func testCancelledEnrichmentAndSeasonKeepExistingDetailsAndClearLoading() async {
+        let item = MediaItem(id: "tt1234567", type: "series", name: "Series")
+        let controller = DetailLoadingController(item: item), enrichment = details()
+        await controller.load(metadata: { ($0, nil) }, enrich: { _ in enrichment })
+        await controller.loadSeason { [self] _, _, _ in [episode("existing", season: 1)] }
+        await controller.refreshEnrichment { _ in throw CancellationError() }
+        await controller.loadSeason(preserveExisting: true) { _, _, _ in throw CancellationError() }
+        XCTAssertFalse(controller.enriching)
+        XCTAssertFalse(controller.seasonLoading)
+        XCTAssertEqual(controller.enrichment, enrichment)
+        XCTAssertEqual(controller.episodes.map(\.id), ["existing"])
+        XCTAssertNil(controller.metadataError)
+        XCTAssertNil(controller.seasonError)
+    }
+
+    func testCancelledOldEnrichmentCannotClearNewRequestsLoadingState() async {
+        let item = MediaItem(id: "tt1234567", type: "series", name: "Series")
+        let controller = DetailLoadingController(item: item), oldGate = DetailGate(), newGate = DetailGate()
+        await controller.load(metadata: { ($0, nil) })
+        let old = Task {
+            await controller.refreshEnrichment { _ in
+                await oldGate.pause()
+                throw CancellationError()
+            }
+        }
+        await waitForGate(oldGate)
+        let new = Task {
+            await controller.refreshEnrichment { [self] _ in
+                await newGate.pause()
+                return details()
+            }
+        }
+        await waitForGate(newGate)
+        old.cancel()
+        await oldGate.release()
+        await old.value
+        XCTAssertTrue(controller.enriching)
+        await newGate.release()
+        await new.value
+        XCTAssertFalse(controller.enriching)
+        XCTAssertEqual(controller.enrichment, details())
+    }
+
     func testMoviePlaybackStartsOnceAfterMetadata() async {
         let item = MediaItem(id: "tt1234567", type: "movie", name: "Movie")
         let controller = DetailLoadingController(item: item, startPlayback: true)
@@ -67,12 +138,7 @@ private actor DetailGate {
                 return (old, nil)
             })
         }
-        for _ in 0..<500 {
-            if await gate.waiting { break }
-            await Task.yield()
-        }
-        let started = await gate.waiting
-        XCTAssertTrue(started)
+        await waitForGate(gate)
         await controller.load(metadata: { item in
             var new = item
             new.description = "New"
@@ -95,12 +161,7 @@ private actor DetailGate {
                 return [episode("old", season: 1)]
             }
         }
-        for _ in 0..<500 {
-            if await gate.waiting { break }
-            await Task.yield()
-        }
-        let started = await gate.waiting
-        XCTAssertTrue(started)
+        await waitForGate(gate)
         controller.season = 2
         await controller.loadSeason { [self] _, _, _ in [episode("new", season: 2)] }
         await gate.release()

@@ -6,6 +6,7 @@ import Observation
 @MainActor @Observable
 public final class WatchProgressController {
     public private(set) var state = WatchProgress()
+    private var statusIndex = WatchStatusIndex()
     public var error: String?
     @ObservationIgnored private let writer: WatchProgressWriter
     @ObservationIgnored private var pendingSave: (id: UUID, task: Task<Bool, Never>)?
@@ -16,11 +17,16 @@ public final class WatchProgressController {
         do {
             let loaded = try repository.load()
             state = loaded.state
+            statusIndex = WatchStatusIndex(loaded.state)
             if loaded.recovered { error = "Watch progress was recovered from its last saved copy." }
         } catch {
             writable = false
             self.error = error.localizedDescription
         }
+    }
+
+    public func isWatched(_ media: MediaItem, episode: Episode? = nil) -> Bool {
+        statusIndex.isWatched(media, episode: episode)
     }
 
     @discardableResult public func setWatched(
@@ -32,7 +38,6 @@ public final class WatchProgressController {
         }
     }
 
-    #if !VESPER_GO
     @discardableResult public func removeFromContinueWatching(for item: MediaItem) -> Task<Bool, Never> {
         commit { proposed in
             proposed.removeFromContinueWatching(for: item)
@@ -47,7 +52,6 @@ public final class WatchProgressController {
                 elapsed: update.elapsed, duration: update.duration, ended: update.ended)
         }
     }
-    #endif
 
     public func flush() async {
         while let pendingSave { _ = await pendingSave.task.value }
@@ -99,7 +103,12 @@ public final class WatchProgressController {
             if change(&proposed) {
                 do {
                     try await self.writer.save(proposed)
+                    let committed = proposed
+                    let index = await Task.detached(priority: .utility) {
+                        WatchStatusIndex(committed)
+                    }.value
                     self.state = proposed
+                    self.statusIndex = index
                     success = true
                 } catch { self.error = error.localizedDescription }
             }
