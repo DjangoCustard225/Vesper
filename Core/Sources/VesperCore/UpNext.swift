@@ -86,6 +86,33 @@ import Foundation
         return nil
     }
 
+    /// Finds the earliest unwatched regular episode, without placing specials before season one.
+    public static func firstUnwatched(
+        seasons: [Int], now: Date = Date(),
+        isWatched: @MainActor (Episode) -> Bool,
+        fetchSeason: @MainActor (Int) async throws -> [Episode]
+    ) async throws -> Episode? {
+        let regular = Set(seasons).filter { $0 > 0 }.sorted()
+        let ordered = regular.isEmpty && seasons.contains(0) ? [0] : regular
+        for season in ordered {
+            try Task.checkCancellation()
+            let episodes = try await fetchSeason(season)
+            try Task.checkCancellation()
+            var seen = Set<Int>()
+            for candidate in episodes.sorted(by: {
+                if $0.episode != $1.episode { return ($0.episode ?? 0) < ($1.episode ?? 0) }
+                return $0.id < $1.id
+            }) {
+                guard candidate.season == season, let number = candidate.episode, number > 0,
+                    !candidate.id.isEmpty, seen.insert(number).inserted, !isWatched(candidate)
+                else { continue }
+                guard hasAired(candidate, now: now) else { return nil }
+                return candidate
+            }
+        }
+        return nil
+    }
+
     public static func shouldOffer(timeline: PlaybackTimeline, ended: Bool) -> Bool {
         ended
             || (timeline.isSeekable && timeline.duration > 0

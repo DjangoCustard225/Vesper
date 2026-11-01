@@ -9,10 +9,6 @@ public struct CatalogFeed: Identifiable, Sendable {
 
     public var id: String { addon.id + ":" + catalog.type + ":" + catalog.id }
 
-    public var subtitle: String {
-        addon.manifest.name + " · " + (catalog.type == "series" ? "Series" : catalog.type.capitalized)
-    }
-
     public init(addon: InstalledAddon, catalog: AddonCatalog) {
         self.addon = addon
         self.catalog = catalog
@@ -33,6 +29,7 @@ public struct TMDBFeed: Identifiable, Sendable {
 public enum HomeCatalog: Sendable {
     case addon(CatalogFeed)
     case tmdb(TMDBCatalog)
+    case combined(CombinedCatalog)
 }
 
 /// Owns home-feed requests, incremental delivery, and cache revalidation.
@@ -42,6 +39,8 @@ public final class HomeFeedController {
     public private(set) var feeds: [CatalogFeed] = []
     public private(set) var tmdbFeeds: [TMDBFeed] = []
     public private(set) var isLoading = false
+    public private(set) var settledCatalogIDs: Set<String> = []
+    public private(set) var presentationRevision = UUID()
 
     private enum Target: Hashable, Sendable {
         case addon(String)
@@ -63,6 +62,7 @@ public final class HomeFeedController {
     @ObservationIgnored private var request: Task<Void, Never>?
     @ObservationIgnored private var revalidation: Task<Void, Never>?
     @ObservationIgnored private var jobs: [Job] = []
+    @ObservationIgnored private var completed: Set<Target> = []
     @ObservationIgnored private var cacheIDs: [Target: String] = [:]
     @ObservationIgnored private var pendingUpdates: Set<String> = []
 
@@ -77,37 +77,62 @@ public final class HomeFeedController {
         pendingUpdates = []
         jobs = []
         cacheIDs = [:]
+        completed = []
+        settledCatalogIDs = []
         isLoading = false
+        presentationRevision = UUID()
     }
 
     public func load(
-        addons: [InstalledAddon], includeTMDB: Bool,
-        source: (HomeCatalog) -> ContentSource
+        catalogs: [HomeCatalog], preservingUnchanged: Bool = false, source: (HomeCatalog) -> ContentSource?
     ) async {
+        let previousFeeds = feeds, previousTMDB = tmdbFeeds, previousCacheIDs = cacheIDs
+        let previousCompleted = completed
         cancel()
         let current = generation
-        let previousFeeds = feeds
-        let previousTMDB = tmdbFeeds
-        feeds = addons.filter(\.isEnabled).flatMap { addon in
-            addon.manifest.catalogs.filter { $0.canRequest(with: $0.defaultExtras) }.map { catalog in
-                var feed = CatalogFeed(addon: addon, catalog: catalog)
-                feed.items = previousFeeds.first { $0.id == feed.id }?.items ?? []
-                return feed
+        var seen = Set<String>()
+        let catalogs = catalogs.filter { catalog in
+            guard seen.insert(catalog.id).inserted else { return false }
+            if case .combined = catalog { return false }
+            if case .addon(let feed) = catalog { return feed.addon.isEnabled }
+            return true
+        }
+        let entries = catalogs.compactMap { catalog -> (HomeCatalog, Job)? in
+            guard let source = source(catalog) else { return nil }
+            switch catalog {
+            case .addon(let feed): return (catalog, Job(target: .addon(feed.id), source: source))
+            case .tmdb(let value): return (catalog, Job(target: .tmdb(value), source: source))
+            case .combined: return nil
             }
         }
-        tmdbFeeds =
-            includeTMDB
-            ? TMDBCatalog.allCases.map { catalog in
-                var feed = TMDBFeed(catalog: catalog)
-                feed.items = previousTMDB.first { $0.catalog == catalog }?.items ?? []
-                return feed
-            } : []
-        jobs =
-            tmdbFeeds.map { Job(target: .tmdb($0.catalog), source: source(.tmdb($0.catalog))) }
-            + feeds.map { Job(target: .addon($0.id), source: source(.addon($0))) }
-        for job in jobs { cacheIDs[job.target] = job.source.initialCacheID }
-        let jobs = jobs
-        isLoading = true
+        jobs = entries.map { $0.1 }
+        feeds = []
+        tmdbFeeds = []
+        for (catalog, job) in entries {
+            let sameRequest = previousCacheIDs[job.target] == job.source.initialCacheID
+            if sameRequest, previousCompleted.contains(job.target) {
+                completed.insert(job.target)
+                settledCatalogIDs.insert(catalog.id)
+            }
+            switch catalog {
+            case .addon(var feed):
+                let previous = sameRequest ? previousFeeds.first { $0.id == feed.id } : nil
+                feed.items = previous?.items ?? []
+                feed.error = previous?.error
+                feeds.append(feed)
+            case .tmdb(let value):
+                var feed = TMDBFeed(catalog: value)
+                let previous = sameRequest ? previousTMDB.first { $0.catalog == value } : nil
+                feed.items = previous?.items ?? []
+                feed.error = previous?.error
+                tmdbFeeds.append(feed)
+            case .combined: break
+            }
+            cacheIDs[job.target] = job.source.initialCacheID
+        }
+        let jobs = jobs.filter { !preservingUnchanged || !completed.contains($0.target) }
+        isLoading = !jobs.isEmpty
+        presentationRevision = UUID()
         let task = Task {
             await ConcurrentWork.run(jobs, operation: { await $0.fetch() }) { index, result in
                 guard self.generation == current, !Task.isCancelled else { return }
@@ -123,6 +148,7 @@ public final class HomeFeedController {
         guard generation == current else { return }
         request = nil
         isLoading = false
+        presentationRevision = UUID()
         if !Task.isCancelled { drainUpdates() }
     }
 
@@ -161,6 +187,7 @@ public final class HomeFeedController {
         let failure: String?
         switch result {
         case .success(let page):
+            completed.insert(target)
             if let cacheID = page.cacheID { cacheIDs[target] = cacheID }
             items = page.items
             failure = nil
@@ -171,13 +198,16 @@ public final class HomeFeedController {
         }
         switch target {
         case .tmdb(let catalog):
+            settledCatalogIDs.insert("tmdb:" + catalog.id)
             guard let index = tmdbFeeds.firstIndex(where: { $0.catalog == catalog }) else { return }
             if let items { tmdbFeeds[index].items = items }
             tmdbFeeds[index].error = failure
         case .addon(let id):
+            settledCatalogIDs.insert("addon:" + id)
             guard let index = feeds.firstIndex(where: { $0.id == id }) else { return }
             if let items { feeds[index].items = items }
             feeds[index].error = failure
         }
+        presentationRevision = UUID()
     }
 }

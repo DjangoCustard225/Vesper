@@ -44,13 +44,27 @@ do {
             .sorted().compactMap { groupIDs[$0] }
         var children = subgroups + (sourceRefs[directory] ?? [])
         if directory == "Vesper" {
-            children += [id(300), id(302), id(304), id(311), id(309)]
+            children += [id(300), id(302), id(304), id(311), id(309), id(313)]
         }
         objects.append(
             "\(groupIDs[directory]!) = {isa = PBXGroup; children = (\(children.joined(separator: ","))); name = \"\((directory as NSString).lastPathComponent)\"; sourceTree = \"<group>\"; };"
         )
     }
     objects += [
+        "\(id(420)) = {isa = XCLocalSwiftPackageReference; relativePath = Packages/DownloadEngine; };",
+        "\(id(421)) = {isa = XCSwiftPackageProductDependency; package = \(id(420)); productName = DownloadEngine; };",
+        "\(id(422)) = {isa = PBXBuildFile; productRef = \(id(421)); };",
+        "\(id(423)) = {isa = XCLocalSwiftPackageReference; relativePath = Packages/PAR2Kit; };",
+        "\(id(424)) = {isa = XCSwiftPackageProductDependency; package = \(id(423)); productName = PAR2Kit; };",
+        "\(id(425)) = {isa = PBXBuildFile; productRef = \(id(424)); };",
+        "\(id(426)) = {isa = XCLocalSwiftPackageReference; relativePath = Packages/Unrar; };",
+        "\(id(427)) = {isa = XCSwiftPackageProductDependency; package = \(id(426)); productName = Unrar; };",
+        "\(id(428)) = {isa = PBXBuildFile; productRef = \(id(427)); };",
+        "\(id(410)) = {isa = XCLocalSwiftPackageReference; relativePath = Packages/UsenetEngine; };",
+        "\(id(411)) = {isa = XCSwiftPackageProductDependency; package = \(id(410)); productName = UsenetEngine; };",
+        "\(id(412)) = {isa = PBXBuildFile; productRef = \(id(411)); };",
+        "\(id(313)) = {isa = PBXFileReference; lastKnownFileType = text; path = Vesper/Resources/SwiftNZB-LICENSE.txt; sourceTree = SOURCE_ROOT; };",
+        "\(id(314)) = {isa = PBXBuildFile; fileRef = \(id(313)); };",
         "\(id(300)) = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Vesper/Assets.xcassets; sourceTree = SOURCE_ROOT; };",
         "\(id(301)) = {isa = PBXBuildFile; fileRef = \(id(300)); };",
         "\(id(302)) = {isa = PBXFileReference; lastKnownFileType = text.xml; path = Vesper/PrivacyInfo.xcprivacy; sourceTree = SOURCE_ROOT; };",
@@ -67,13 +81,13 @@ do {
         "\(id(407)) = {isa = PBXBuildFile; productRef = \(id(406)); };",
         "\(id(400)) = {isa = XCLocalSwiftPackageReference; relativePath = Core; };",
         "\(id(401)) = {isa = XCSwiftPackageProductDependency; package = \(id(400)); productName = VesperCore; };",
-        "\(id(1)) = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 2700; }; buildConfigurationList = \(id(10)); compatibilityVersion = \"Xcode 14.0\"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = \(id(2)); productRefGroup = \(id(3)); projectDirPath = \"\"; projectRoot = \"\"; packageReferences = (\([id(400), id(405)].joined(separator: ","))); targets = (\(id(4))); };",
+        "\(id(1)) = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 2700; }; buildConfigurationList = \(id(10)); compatibilityVersion = \"Xcode 14.0\"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = \(id(2)); productRefGroup = \(id(3)); projectDirPath = \"\"; projectRoot = \"\"; packageReferences = (\([id(400), id(405), id(410), id(420), id(423), id(426)].joined(separator: ","))); targets = (\(id(4))); };",
         "\(id(2)) = {isa = PBXGroup; children = (\(groupIDs["Vesper"]!), \(id(3))); sourceTree = \"<group>\"; };",
         "\(id(3)) = {isa = PBXGroup; children = (\(id(305))); name = Products; sourceTree = \"<group>\"; };",
-        "\(id(4)) = {isa = PBXNativeTarget; buildConfigurationList = \(id(11)); buildPhases = (\(id(5)), \(id(6)), \(id(7))); buildRules = (); dependencies = (); name = \(name); packageProductDependencies = (\([id(401), id(406)].joined(separator: ","))); productName = \(name); productReference = \(id(305)); productType = \"com.apple.product-type.application\"; };",
+        "\(id(4)) = {isa = PBXNativeTarget; buildConfigurationList = \(id(11)); buildPhases = (\(id(5)), \(id(6)), \(id(7))); buildRules = (); dependencies = (); name = \(name); packageProductDependencies = (\([id(401), id(406), id(411), id(421), id(424), id(427)].joined(separator: ","))); productName = \(name); productReference = \(id(305)); productType = \"com.apple.product-type.application\"; };",
         "\(id(5)) = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (\(sourceBuilds.joined(separator: ","))); runOnlyForDeploymentPostprocessing = 0; };",
-        "\(id(6)) = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (\([id(306), id(407)].joined(separator: ","))); runOnlyForDeploymentPostprocessing = 0; };",
-        "\(id(7)) = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (\([id(301), id(303), id(310), id(312)].joined(separator: ","))); runOnlyForDeploymentPostprocessing = 0; };",
+        "\(id(6)) = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (\([id(306), id(407), id(412), id(422), id(425), id(428)].joined(separator: ","))); runOnlyForDeploymentPostprocessing = 0; };",
+        "\(id(7)) = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (\([id(301), id(303), id(310), id(312), id(314)].joined(separator: ","))); runOnlyForDeploymentPostprocessing = 0; };",
         "\(id(10)) = {isa = XCConfigurationList; buildConfigurations = (\(id(12)), \(id(13))); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };",
         "\(id(11)) = {isa = XCConfigurationList; buildConfigurations = (\(id(14)), \(id(15))); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };",
     ]

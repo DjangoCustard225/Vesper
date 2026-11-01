@@ -4,8 +4,9 @@ import VesperCore
 struct ImmersiveArtworkSource {
     let backdrop: String?
     let poster: String?
+    var prefersPoster = false
 
-    var preferred: String? { backdrop ?? poster }
+    var preferred: String? { prefersPoster ? (poster ?? backdrop) : (backdrop ?? poster) }
 }
 
 struct Artwork: View {
@@ -14,7 +15,7 @@ struct Artwork: View {
     var retainsPreviousImage = false
     var decodeSize: ArtworkDecodeSize? = nil
 
-    private var imageURL: URL? { url.flatMap { try? AddonURL.http($0) } }
+    private var imageURL: URL? { DownloadFiles.artworkURL(url) }
 
     var body: some View {
         CachedArtworkImage(
@@ -46,6 +47,7 @@ struct ImmersiveArtwork: View {
     let source: ImmersiveArtworkSource
     var isLandscape = false
     var pullDistance: CGFloat = 0
+    var usesPortraitPoster = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -55,6 +57,8 @@ struct ImmersiveArtwork: View {
             Group {
                 if isLandscape {
                     landscapeArtwork(size: proxy.size)
+                } else if usesPortraitPoster {
+                    portraitArtwork(size: proxy.size)
                 } else {
                     Artwork(url: source.preferred, alignment: .top, retainsPreviousImage: true)
                 }
@@ -68,8 +72,18 @@ struct ImmersiveArtwork: View {
                     .frame(height: 140)
             }
             .overlay {
-                LinearGradient(
-                    colors: [.clear, .black.opacity(0.35), .black], startPoint: .top, endPoint: .bottom)
+                if usesPortraitPoster && !isLandscape {
+                    LinearGradient(
+                        stops: [
+                            .init(color: .clear, location: 0),
+                            .init(color: .clear, location: 0.35),
+                            .init(color: .black.opacity(0.3), location: 0.62),
+                            .init(color: .black, location: 0.9),
+                        ], startPoint: .top, endPoint: .bottom)
+                } else {
+                    LinearGradient(
+                        colors: [.clear, .black.opacity(0.35), .black], startPoint: .top, endPoint: .bottom)
+                }
             }
             .overlay {
                 if isLandscape {
@@ -83,8 +97,34 @@ struct ImmersiveArtwork: View {
         .accessibilityHidden(true)
     }
 
+    private func portraitArtwork(size: CGSize) -> some View {
+        let url = DownloadFiles.artworkURL(source.poster ?? source.backdrop)
+        return CachedArtworkImage(url: url, fadesIn: true, retainsPreviousImage: true) { phase in
+            if let image = phase.image {
+                if source.poster == nil {
+                    image.resizable().scaledToFill()
+                        .frame(width: size.width, height: size.height).clipped()
+                } else {
+                    image.resizable().scaledToFit().frame(width: size.width)
+                        .mask {
+                            LinearGradient(
+                                stops: [
+                                    .init(color: .black, location: 0),
+                                    .init(color: .black, location: 0.65),
+                                    .init(color: .clear, location: 1),
+                                ], startPoint: .top, endPoint: .bottom)
+                        }
+                        .frame(width: size.width, height: size.height, alignment: .top)
+                }
+            } else {
+                ArtworkPlaceholder(isLoading: url != nil && phase.error == nil)
+                    .frame(width: size.width, height: size.height)
+            }
+        }.background(.black)
+    }
+
     @ViewBuilder private func landscapeArtwork(size: CGSize) -> some View {
-        let url = source.preferred.flatMap { try? AddonURL.http($0) }
+        let url = DownloadFiles.artworkURL(source.backdrop ?? source.poster)
         CachedArtworkImage(url: url, fadesIn: true, retainsPreviousImage: true) { phase in
             if let image = phase.image {
                 let dimensions = url.flatMap { ArtworkPipeline.shared.cachedImage(for: $0)?.size }

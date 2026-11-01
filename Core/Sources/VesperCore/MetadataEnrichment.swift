@@ -2,6 +2,24 @@ import Foundation
 
 public enum MetadataProvider: String, Codable, Hashable, Sendable { case tmdb, tvdb }
 
+public struct DetailArtwork: Codable, Hashable, Sendable {
+    public let textlessPosterURL: String?
+    public let backdropURL: String?
+
+    public init(textlessPosterURL: String? = nil, backdropURL: String? = nil) {
+        self.textlessPosterURL = textlessPosterURL
+        self.backdropURL = backdropURL
+    }
+
+    public var urls: [String] { [textlessPosterURL, backdropURL].compactMap { $0 } }
+
+    public func mappingURLs(_ transform: (String) -> String?) -> Self {
+        Self(
+            textlessPosterURL: textlessPosterURL.flatMap(transform),
+            backdropURL: backdropURL.flatMap(transform))
+    }
+}
+
 public struct MetadataReference: Codable, Hashable, Sendable {
     public let provider: MetadataProvider
     public let id: Int
@@ -50,6 +68,7 @@ public struct MetadataEnrichment: Codable, Hashable, Sendable {
     public let overview: String?
     public let tagline: String?
     public let posterURL: String?
+    public let textlessPosterURL: String?
     public let backdropURL: String?
     public let titleLogoURL: String?
     public let releaseYear: String?
@@ -104,6 +123,7 @@ extension MetadataEnrichment {
         return MetadataEnrichment(
             id: id, mediaType: mediaType, overview: overview ?? fallback.overview,
             tagline: tagline ?? fallback.tagline, posterURL: posterURL ?? fallback.posterURL,
+            textlessPosterURL: textlessPosterURL ?? fallback.textlessPosterURL,
             backdropURL: backdropURL ?? fallback.backdropURL,
             titleLogoURL: titleLogoURL ?? fallback.titleLogoURL,
             releaseYear: releaseYear ?? fallback.releaseYear,

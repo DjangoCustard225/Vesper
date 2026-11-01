@@ -25,7 +25,7 @@ private actor DetailGate {
 
     private func details() -> MetadataEnrichment {
         MetadataEnrichment(
-            id: 42, mediaType: "tv", overview: nil, tagline: nil, posterURL: nil,
+            id: 42, mediaType: "tv", overview: nil, tagline: nil, posterURL: nil, textlessPosterURL: nil,
             backdropURL: nil, titleLogoURL: nil, releaseYear: nil, runtimeMinutes: nil,
             genres: [], cast: [], directors: [], directorPeople: [], crew: nil,
             creators: [], rating: nil, voteCount: nil, imdbID: nil, seasons: [1, 2])

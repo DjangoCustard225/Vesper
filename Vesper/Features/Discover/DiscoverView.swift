@@ -4,7 +4,6 @@ import VesperCore
 struct DiscoverView: View {
     @Environment(AppStore.self) private var store
     @State private var heroPage: CGFloat = 0
-    @State private var heroArtwork: [String: ImmersiveArtworkSource] = [:]
 
     var body: some View {
         let items = store.heroItems
@@ -17,7 +16,8 @@ struct DiscoverView: View {
                 artwork: ImmersiveArtworkSource(backdrop: nil, poster: nil),
                 headerHeight: items.isEmpty ? 0 : heroHeight,
                 artworks: items.map {
-                    heroArtwork[$0.key] ?? ImmersiveArtworkSource(backdrop: $0.background, poster: $0.poster)
+                    ImmersiveArtworkSource(
+                        backdrop: $0.background, poster: $0.poster, prefersPoster: $0.type == "series")
                 },
                 artworkPage: heroPage, isLandscape: isLandscape
             ) {
@@ -25,7 +25,7 @@ struct DiscoverView: View {
                     if !items.isEmpty {
                         HeroCarousel(
                             items: items, height: heroHeight, isLandscape: isLandscape,
-                            horizontalPage: $heroPage, artworkSources: $heroArtwork
+                            horizontalPage: $heroPage
                         )
                         .id(store.heroCatalogID)
                     }
@@ -45,9 +45,7 @@ struct DiscoverView: View {
         .toolbar(.hidden, for: .navigationBar)
         .onChange(of: store.heroCatalogID) { _, _ in
             heroPage = 0
-            heroArtwork = [:]
         }
-        .onChange(of: store.metadataConfigurationRevision) { _, _ in heroArtwork = [:] }
     }
 }
 
@@ -57,14 +55,11 @@ private struct HomeCatalogSections: View {
     let width: CGFloat
     @State private var prefetch = ArtworkPrefetchState()
 
-    private var feeds: [CatalogFeed] { store.feeds }
-    private var rows: [ArtworkPrefetchWindow.Row] {
-        store.tmdbFeeds.map { .init(id: "tmdb:" + $0.id, items: $0.items) }
-            + feeds.map { .init(id: "addon:" + $0.id, items: Array($0.items.prefix(20))) }
-    }
-
     var body: some View {
-        LazyVStack(alignment: .leading, spacing: 24) {
+        let presentation = store.catalogPresentation
+        let catalogs = presentation.rows
+        let rows = presentation.prefetchRows
+        return LazyVStack(alignment: .leading, spacing: 24) {
             if store.isLoading && store.feeds.isEmpty && store.tmdbFeeds.isEmpty {
                 ProgressView("Finding your next watch…").frame(maxWidth: .infinity).padding(
                     .vertical, 100)
@@ -82,56 +77,74 @@ private struct HomeCatalogSections: View {
                     }.buttonStyle(.glassProminent)
                 }.padding(24)
             }
-            ForEach(store.tmdbFeeds) { feed in
-                TMDBShelf(feed: feed)
+            ForEach(catalogs) { row in
+                HomeCatalogShelf(row: row)
                     .onScrollVisibilityChange(threshold: 0.01) { active in
-                        prefetch.visibility(active, id: "tmdb:" + feed.id, rows: rows)
+                        prefetch.visibility(active, id: row.id, rows: rows)
                     }
             }
-            ForEach(feeds) { feed in
-                VStack(alignment: .leading, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        NavigationLink {
-                            CatalogView(feed: feed)
-                        } label: {
-                            CatalogHeading(title: feed.catalog.title)
-                        }.buttonStyle(.plain).accessibilityLabel("See all \(feed.catalog.title)")
-                        Text(feed.subtitle).font(.caption).foregroundStyle(.secondary)
-                    }.padding(.horizontal, 20)
-                    if let error = feed.error {
-                        ErrorNotice(message: error) { Task { await store.refresh() } }.padding(
-                            .horizontal, 20)
-                    }
-                    if feed.items.isEmpty && feed.error == nil {
-                        if store.isLoading {
-                            ProgressView().padding(.horizontal, 20)
-                        } else {
-                            Text("No titles in this catalog yet.").font(.subheadline).foregroundStyle(
-                                .secondary
-                            ).padding(.horizontal, 20)
-                        }
-                    } else if !feed.items.isEmpty {
-                        PosterShelf(items: Array(feed.items.prefix(20)))
-                    }
+            if catalogs.isEmpty, store.tmdbCredential != nil {
+                ContentUnavailableView {
+                    Label("No visible catalogs", systemImage: "rectangle.stack")
+                } actions: {
+                    NavigationLink("Manage Catalogs") { CatalogSettingsView() }
                 }
-                .onScrollVisibilityChange(threshold: 0.01) { active in
-                    prefetch.visibility(active, id: "addon:" + feed.id, rows: rows)
-                }
-            }
-            if !store.isLoading && feeds.isEmpty && store.tmdbFeeds.isEmpty
-                && store.tmdbCredential != nil
-            {
-                ContentUnavailableView(
-                    "Your next watch starts here", systemImage: "sparkles.tv",
-                    description: Text("Browse movies and series from TMDB."))
             }
         }
-        .prefetchArtwork(
+        .modifier(HomeCatalogPrefetch(prefetch: prefetch, rows: rows, width: width, scale: displayScale))
+        .onDisappear { prefetch.reset() }
+    }
+}
+
+/// Visibility changes invalidate this modifier, leaving the catalog hierarchy alone.
+private struct HomeCatalogPrefetch: ViewModifier {
+    let prefetch: ArtworkPrefetchState
+    let rows: [ArtworkPrefetchWindow.Row]
+    let width: CGFloat
+    let scale: CGFloat
+
+    func body(content: Content) -> some View {
+        content.prefetchArtwork(
             prefetch.urls(rows: rows, width: width),
             size: ArtworkDecodeSize(
-                width: Design.posterWidth, height: Design.posterWidth * 1.5, scale: displayScale)
-        )
-        .onDisappear { prefetch.reset() }
+                width: Design.posterWidth, height: Design.posterWidth * 1.5, scale: scale))
+    }
+}
+
+private struct HomeCatalogShelf: View {
+    @Environment(AppStore.self) private var store
+    let row: HomeCatalogRow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            NavigationLink {
+                switch row.catalog {
+                case .addon(let feed): CatalogView(feed: feed)
+                case .tmdb(let catalog): TMDBCatalogView(catalog: catalog)
+                case .combined(let group): CombinedCatalogView(group: group)
+                }
+            } label: {
+                CatalogHeading(title: row.title)
+            }.buttonStyle(.plain).accessibilityLabel("See all \(row.title)").padding(.horizontal, 20)
+            if let error = row.error {
+                ErrorNotice(message: error) { Task { await store.refresh() } }.padding(.horizontal, 20)
+            }
+            if row.items.isEmpty, row.error == nil {
+                if row.isLoading {
+                    ProgressView().padding(.horizontal, 20)
+                } else if case .combined(let group) = row.catalog,
+                    row.isUnavailable
+                {
+                    NavigationLink("Edit Catalog") { CombinedCatalogEditor(group: group) }
+                        .padding(.horizontal, 20)
+                } else {
+                    Text("No titles in this catalog yet.").font(.subheadline).foregroundStyle(.secondary)
+                        .padding(.horizontal, 20)
+                }
+            } else if !row.items.isEmpty {
+                PosterShelf(items: row.items)
+            }
+        }
     }
 }
 
@@ -147,26 +160,20 @@ struct FeaturedCard: View {
 
     private var saved: Bool { store.contains(media) }
 
-    private var bottomPadding: CGFloat {
-        let standard: CGFloat = isLandscape ? 36 : 24
-        return showsPageControl ? max(standard, Design.minimumHitTarget + 12) : standard
-    }
-
     var body: some View {
-        ZStack(alignment: isLandscape ? .bottomLeading : .bottom) {
+        ZStack(alignment: .bottom) {
             NavigationLink {
                 DetailView(item: media)
             } label: {
                 Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity).contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityLabel("Details for \(media.name)")
-            VStack(alignment: isLandscape ? .leading : .center, spacing: isLandscape ? 12 : 20) {
+            VStack(spacing: 20) {
                 NavigationLink {
                     DetailView(item: media)
                 } label: {
                     PosterTitle(
                         name: media.name, logoURL: nil, preparedImage: presentation?.titleImage,
-                        isLoading: presentation == nil, compact: isLandscape,
-                        alignment: isLandscape ? .leading : .center)
+                        isLoading: presentation == nil)
                 }.buttonStyle(.plain).accessibilityLabel("Details for \(media.name)")
                 HStack(spacing: 12) {
                     NavigationLink {
@@ -174,23 +181,22 @@ struct FeaturedCard: View {
                     } label: {
                         Label("Play", systemImage: "play.fill")
                             .font(.headline).padding(.horizontal, 30).frame(minHeight: 48)
-                            .foregroundStyle(.black).background(.white, in: Capsule())
-                    }.buttonStyle(.plain).accessibilityLabel("Play \(media.name)")
+                            .foregroundStyle(.white)
+                    }.buttonStyle(.glass).buttonBorderShape(.capsule)
+                        .accessibilityLabel("Play \(media.name)")
                     Button {
                         store.toggleLibrary(media)
                     } label: {
                         Image(systemName: saved ? "checkmark" : "plus")
                             .font(.title3.weight(.semibold)).frame(width: 48, height: 48)
-                            .foregroundStyle(.black).background(.white, in: Circle())
-                    }.buttonStyle(.plain)
+                            .foregroundStyle(.white)
+                    }.buttonStyle(.glass).buttonBorderShape(.circle)
                         .accessibilityLabel(
                             saved ? "Remove \(media.name) from library" : "Add \(media.name) to library"
                         )
                         .accessibilityValue(saved ? "Saved" : "Not saved")
                 }
-            }
-            .frame(maxWidth: isLandscape ? 380 : .infinity, alignment: isLandscape ? .leading : .center)
-            .padding(.horizontal, isLandscape ? 40 : 24).padding(.bottom, bottomPadding)
+            }.padding(.horizontal, 24).padding(.bottom, 48)
         }
         .frame(height: height)
         .modifier(MediaContextMenu(item: media))

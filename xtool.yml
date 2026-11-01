@@ -5,3 +5,4 @@ iconPath: Vesper/Assets.xcassets/AppIcon.appiconset/AppIcon.png
 resources:
   - Vesper/PrivacyInfo.xcprivacy
   - Vesper/Resources/AetherEngine-LICENSE.txt
+  - Vesper/Resources/SwiftNZB-LICENSE.txt

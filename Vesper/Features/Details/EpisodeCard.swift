@@ -4,8 +4,12 @@ import VesperCore
 struct EpisodeShelf: View {
     let media: MediaItem
     let episodes: [Episode]
+    var initialEpisodeID: String? = nil
     let play: (Episode) -> Void
+    var chooseOnline: ((Episode) -> Void)? = nil
+    var download: ((Episode) -> Void)? = nil
     let showDescription: (Episode) -> Void
+    @State private var position = ScrollPosition(idType: String.self, edge: .leading)
     @State private var prefetch = ArtworkPrefetchState()
     @State private var visible = false
 
@@ -25,15 +29,26 @@ struct EpisodeShelf: View {
                 ForEach(episodes) { episode in
                     EpisodeCard(
                         media: media, episode: episode,
-                        play: { play(episode) }, showDescription: { showDescription(episode) }
+                        play: { play(episode) }, showDescription: { showDescription(episode) },
+                        chooseOnline: chooseOnline.map { action in { action(episode) } },
+                        download: download.map { action in { action(episode) } }
                     )
+                    .id(episode.id)
                     .onScrollVisibilityChange(threshold: 0.01) { active in
                         prefetch.visibility(active, key: "episode:" + episode.id, items: artworkItems)
                     }
                 }
-            }.padding(.horizontal, 20)
+            }.scrollTargetLayout()
         }
+        .contentMargins(.horizontal, 20, for: .scrollContent)
+        .scrollPosition($position, anchor: .leading)
+        .defaultScrollAnchor(.leading, for: .initialOffset)
         .scrollIndicators(.hidden).appScrollEdges()
+        .task(id: episodes.first { $0.id == initialEpisodeID }?.id) {
+            guard let id = initialEpisodeID, episodes.contains(where: { $0.id == id }) else { return }
+            // Position this horizontal scroll view only, keeping the surrounding detail page still.
+            position.scrollTo(id: id, anchor: .leading)
+        }
         .onScrollVisibilityChange(threshold: 0.01) { visible = $0 }
         .prefetchArtwork(urls)
         .onDisappear {
@@ -49,10 +64,17 @@ struct EpisodeCard: View {
     let episode: Episode
     let play: () -> Void
     let showDescription: () -> Void
+    var chooseOnline: (() -> Void)? = nil
+    var download: (() -> Void)? = nil
     @ScaledMetric(relativeTo: .body) private var cardWidth = 240.0
     @ScaledMetric(relativeTo: .body) private var cardHeight = 248.0
 
     private var watched: Bool { store.isWatched(media, episode: episode) }
+    private var downloaded: Bool {
+        store.downloads.completed.contains {
+            DownloadPlayback.matches($0, media: media, videoID: episode.id, episode: episode)
+        }
+    }
 
     private var playbackLabel: String {
         if let runtime = episode.runtimeMinutes { return "\(runtime)m" }
@@ -91,8 +113,11 @@ struct EpisodeCard: View {
                 }.frame(width: cardWidth, height: cardHeight).contentShape(Rectangle())
             }.buttonStyle(.plain)
                 .accessibilityLabel("\(episode.label), \(episode.displayTitle)")
-                .accessibilityValue(watched ? "Watched" : "Unwatched")
-                .accessibilityHint("Choose a stream for this episode")
+                .accessibilityValue(
+                    [watched ? "Watched" : "Unwatched", downloaded ? "Downloaded" : nil].compactMap { $0 }
+                        .joined(separator: ", ")
+                )
+                .accessibilityHint("Plays a downloaded copy when available or opens online sources")
             HStack(spacing: 8) {
                 Button(action: play) {
                     HStack(spacing: 5) {
@@ -107,6 +132,10 @@ struct EpisodeCard: View {
                 Spacer(minLength: 4)
                 Menu {
                     Button("Play episode", systemImage: "play", action: play)
+                    if let chooseOnline {
+                        Button("Choose Online Source", systemImage: "network", action: chooseOnline)
+                    }
+                    if let download { Button("Download", systemImage: "arrow.down.circle", action: download) }
                     if WatchProgress.supports(media), media.type == "series" {
                         Button(
                             watched ? "Mark as Unwatched" : "Mark as Watched",
@@ -133,6 +162,9 @@ struct EpisodeCard: View {
         }
         .overlay(alignment: .topTrailing) {
             if watched { WatchedBadge().padding(10) }
+        }
+        .overlay(alignment: .topLeading) {
+            if downloaded { DownloadedBadge().padding(10) }
         }
     }
 }

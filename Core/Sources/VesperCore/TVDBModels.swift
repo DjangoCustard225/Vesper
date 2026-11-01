@@ -75,6 +75,7 @@ struct TVDBArtwork: Codable, Sendable {
     let language: String?
     let score: Double?
     let width: Int?
+    var includesText: Bool? = nil
 }
 struct TVDBCharacter: Codable, Sendable {
     let peopleId: Int?
@@ -113,6 +114,16 @@ struct TVDBSeries: Codable, Sendable {
             }
             return sorted.compactMap { TVDBImage.url($0.image) }.first
         }
+        let posterTypes = Set(
+            artworkTypes.filter {
+                $0.recordType?.lowercased() == "series" && $0.name?.lowercased().contains("poster") == true
+            }.compactMap(\.id))
+        let textlessPosterURL = (artworks ?? []).filter {
+            posterTypes.contains($0.type ?? -1) && $0.includesText == false
+        }.sorted {
+            if $0.score != $1.score { return ($0.score ?? 0) > ($1.score ?? 0) }
+            return ($0.width ?? 0) > ($1.width ?? 0)
+        }.compactMap { TVDBImage.url($0.image) }.first
         var cast: [CastMember] = [], crew: [CrewMember] = []
         let people = (characters ?? []).sorted { ($0.sort ?? Int.max) < ($1.sort ?? Int.max) }
         for person in people {
@@ -154,7 +165,8 @@ struct TVDBSeries: Codable, Sendable {
         ).sorted()
         return MetadataEnrichment(
             id: id, mediaType: "tv", overview: overview, tagline: nil,
-            posterURL: artwork("poster") ?? TVDBImage.url(image), backdropURL: artwork("background"),
+            posterURL: artwork("poster") ?? TVDBImage.url(image), textlessPosterURL: textlessPosterURL,
+            backdropURL: artwork("background"),
             titleLogoURL: artwork("clearlogo"),
             releaseYear: firstAired?.nonempty.map { String($0.prefix(4)) },
             runtimeMinutes: averageRuntime.flatMap { $0 > 0 ? $0 : nil },

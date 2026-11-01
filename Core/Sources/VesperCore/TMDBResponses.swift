@@ -70,13 +70,14 @@ struct TMDBFindResponse: Decodable {
 
 struct TMDBDetails: Decodable {
     struct Images: Decodable {
-        struct Logo: Decodable {
+        struct Asset: Decodable {
             let filePath: String?
             let iso6391: String?
             let width: Int?
             let voteAverage: Double?
         }
-        let logos: [Logo]?
+        let posters: [Asset]?
+        let logos: [Asset]?
     }
     struct ExternalIDs: Decodable { let imdbId: String? }
     struct Season: Decodable {
@@ -173,6 +174,18 @@ struct TMDBDetails: Decodable {
             let first = $0.element.jobs.contains("Director"), second = $1.element.jobs.contains("Director")
             return first != second ? first : $0.offset < $1.offset
         }.prefix(60).map(\.element)
+        let posters = (images?.posters ?? []).filter {
+            $0.iso6391 == nil || $0.iso6391?.isEmpty == true
+        }.sorted {
+            if ($0.voteAverage ?? 0) != ($1.voteAverage ?? 0) {
+                return ($0.voteAverage ?? 0) > ($1.voteAverage ?? 0)
+            }
+            return ($0.width ?? 0) > ($1.width ?? 0)
+        }
+        let textlessPosterURL = posters.lazy.compactMap {
+            configuration.image(
+                $0.filePath, sizes: configuration.images.posterSizes, preferred: "original")
+        }.first
         let logos = (images?.logos ?? []).filter {
             ($0.iso6391 == "en" || $0.iso6391 == nil)
                 && ($0.filePath?.lowercased().hasSuffix(".png") == true
@@ -199,6 +212,7 @@ struct TMDBDetails: Decodable {
             id: id, mediaType: type, overview: overview, tagline: tagline,
             posterURL: configuration.image(
                 posterPath, sizes: configuration.images.posterSizes, preferred: "w500"),
+            textlessPosterURL: textlessPosterURL,
             backdropURL: configuration.image(
                 backdropPath, sizes: configuration.images.backdropSizes, preferred: "w1280"),
             titleLogoURL: titleLogoURL,

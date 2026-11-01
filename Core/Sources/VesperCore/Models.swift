@@ -220,6 +220,22 @@ public struct StreamSource: Codable, Hashable, Sendable {
     public let fileIdx: Int?
     public let sources: [String]?
     public let behaviorHints: StreamHints?
+    public let nzbUrl: String?
+    public let servers: [String]?
+    public let fileMustInclude: String?
+
+    // Add-on NNTP credentials are transient and never serialized into history/cache/backups.
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(name, forKey: .name); try c.encodeIfPresent(title, forKey: .title)
+        try c.encodeIfPresent(description, forKey: .description); try c.encodeIfPresent(url, forKey: .url)
+        try c.encodeIfPresent(externalUrl, forKey: .externalUrl); try c.encodeIfPresent(ytId, forKey: .ytId)
+        try c.encodeIfPresent(infoHash, forKey: .infoHash); try c.encodeIfPresent(fileIdx, forKey: .fileIdx)
+        try c.encodeIfPresent(sources, forKey: .sources);
+        try c.encodeIfPresent(behaviorHints, forKey: .behaviorHints)
+        try c.encodeIfPresent(nzbUrl, forKey: .nzbUrl);
+        try c.encodeIfPresent(fileMustInclude, forKey: .fileMustInclude)
+    }
 
     public var label: String { name ?? "Stream" }
 

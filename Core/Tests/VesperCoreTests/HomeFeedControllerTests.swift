@@ -43,7 +43,8 @@ final class HomeFeedControllerTests: XCTestCase {
         let addon = try addon()
         let secondFinished = expectation(description: "Second shelf finishes independently")
         let task = Task {
-            await controller.load(addons: [addon], includeTMDB: false) { catalog in
+            await controller.load(catalogs: HomeCatalog.catalogs(addons: [addon], includeTMDB: false)) {
+                catalog in
                 ContentSource { _ in
                     guard case .addon(let feed) = catalog else { return ContentPage(items: []) }
                     if feed.catalog.id == "first" { await gate.suspend() } else { secondFinished.fulfill() }
@@ -64,11 +65,13 @@ final class HomeFeedControllerTests: XCTestCase {
     func testCacheRefreshFetchesOnlyAffectedShelf() async throws {
         let controller = HomeFeedController()
         var counts: [String: Int] = [:]
-        await controller.load(addons: [try addon()], includeTMDB: true) { catalog in
+        await controller.load(catalogs: HomeCatalog.catalogs(addons: [try addon()], includeTMDB: true)) {
+            catalog in
             let key: String
             switch catalog {
             case .addon(let feed): key = feed.catalog.id
             case .tmdb(let catalog): key = catalog.id
+            case .combined: return nil
             }
             return ContentSource { _ in
                 counts[key, default: 0] += 1
@@ -87,7 +90,7 @@ final class HomeFeedControllerTests: XCTestCase {
         let controller = HomeFeedController(), gate = FeedGate()
         var calls = 0
         let task = Task {
-            await controller.load(addons: [], includeTMDB: true) { catalog in
+            await controller.load(catalogs: HomeCatalog.catalogs(addons: [], includeTMDB: true)) { catalog in
                 ContentSource { _ in
                     guard case .tmdb(.popularMovies) = catalog else { return ContentPage(items: []) }
                     calls += 1
@@ -108,7 +111,7 @@ final class HomeFeedControllerTests: XCTestCase {
     func testSupersededNonCooperativeRequestCannotRestoreRemovedFeeds() async {
         let controller = HomeFeedController(), gate = FeedGate()
         let old = Task {
-            await controller.load(addons: [], includeTMDB: true) { catalog in
+            await controller.load(catalogs: HomeCatalog.catalogs(addons: [], includeTMDB: true)) { catalog in
                 ContentSource { _ in
                     if case .tmdb(.popularMovies) = catalog { await gate.suspend() }
                     return ContentPage(items: [self.item("obsolete")])
@@ -116,7 +119,7 @@ final class HomeFeedControllerTests: XCTestCase {
             }
         }
         await gate.waitUntilStarted()
-        await controller.load(addons: [], includeTMDB: false) { _ in
+        await controller.load(catalogs: HomeCatalog.catalogs(addons: [], includeTMDB: false)) { _ in
             ContentSource { _ in ContentPage(items: []) }
         }
         gate.release()
@@ -127,10 +130,10 @@ final class HomeFeedControllerTests: XCTestCase {
 
     func testFailedReloadKeepsLoadedItemsAndReportsError() async {
         let controller = HomeFeedController()
-        await controller.load(addons: [], includeTMDB: true) { _ in
+        await controller.load(catalogs: HomeCatalog.catalogs(addons: [], includeTMDB: true)) { _ in
             ContentSource { _ in ContentPage(items: [self.item("saved")]) }
         }
-        await controller.load(addons: [], includeTMDB: true) { _ in
+        await controller.load(catalogs: HomeCatalog.catalogs(addons: [], includeTMDB: true)) { _ in
             ContentSource { _ in throw URLError(.notConnectedToInternet) }
         }
         XCTAssertTrue(controller.tmdbFeeds.allSatisfy { $0.items.first?.id == "saved" && $0.error != nil })
@@ -139,7 +142,7 @@ final class HomeFeedControllerTests: XCTestCase {
     func testKnownCacheUpdateCanRecoverInitiallyFailedShelf() async {
         let controller = HomeFeedController()
         var fail = true
-        await controller.load(addons: [], includeTMDB: true) { catalog in
+        await controller.load(catalogs: HomeCatalog.catalogs(addons: [], includeTMDB: true)) { catalog in
             ContentSource(initialCacheID: "known") { _ in
                 if fail { throw URLError(.notConnectedToInternet) }
                 return ContentPage(items: [self.item("recovered")])
@@ -157,7 +160,7 @@ final class HomeFeedControllerTests: XCTestCase {
         let controller = HomeFeedController()
         var disabled = try addon()
         disabled.isEnabled = false
-        await controller.load(addons: [disabled], includeTMDB: false) { _ in
+        await controller.load(catalogs: HomeCatalog.catalogs(addons: [disabled], includeTMDB: false)) { _ in
             XCTFail("Disabled add-on created a request")
             return ContentSource { _ in ContentPage(items: []) }
         }
@@ -168,7 +171,7 @@ final class HomeFeedControllerTests: XCTestCase {
     func testUpdateArrivingDuringRevalidationRunsAfterCurrentRequest() async {
         let controller = HomeFeedController(), gate = FeedGate()
         var calls = 0
-        await controller.load(addons: [], includeTMDB: true) { catalog in
+        await controller.load(catalogs: HomeCatalog.catalogs(addons: [], includeTMDB: true)) { catalog in
             ContentSource { _ in
                 guard case .tmdb(.popularMovies) = catalog else { return ContentPage(items: []) }
                 calls += 1
@@ -188,7 +191,7 @@ final class HomeFeedControllerTests: XCTestCase {
     func testFailedRevalidationKeepsVisibleItemsWithoutReplacingError() async {
         let controller = HomeFeedController()
         var fail = false
-        await controller.load(addons: [], includeTMDB: true) { catalog in
+        await controller.load(catalogs: HomeCatalog.catalogs(addons: [], includeTMDB: true)) { catalog in
             ContentSource { _ in
                 if fail { throw URLError(.timedOut) }
                 return ContentPage(items: [self.item("saved")], cacheID: "catalog")
@@ -200,12 +203,105 @@ final class HomeFeedControllerTests: XCTestCase {
         XCTAssertTrue(controller.tmdbFeeds.allSatisfy { $0.items.first?.id == "saved" && $0.error == nil })
     }
 
+    func testChangingOneCatalogRefetchesOnlyItsSourceAndClearsOnlyItsOldItems() async throws {
+        let controller = HomeFeedController(), gate = FeedGate()
+        let catalogs = HomeCatalog.catalogs(addons: [try addon()], includeTMDB: false)
+        var calls: [String: Int] = [:]
+        await controller.load(catalogs: catalogs) { catalog in
+            ContentSource(initialCacheID: catalog.id + ":default") { _ in
+                calls[catalog.id, default: 0] += 1
+                return ContentPage(items: [self.item("original")], cacheID: catalog.id + ":default")
+            }
+        }
+        let task = Task {
+            await controller.load(catalogs: catalogs, preservingUnchanged: true) { catalog in
+                let key = catalog.id + (catalog.id == catalogs[0].id ? ":filtered" : ":default")
+                return ContentSource(initialCacheID: key) { _ in
+                    calls[catalog.id, default: 0] += 1
+                    await gate.suspend()
+                    return ContentPage(items: [self.item("filtered")], cacheID: key)
+                }
+            }
+        }
+        await gate.waitUntilStarted()
+        XCTAssertTrue(controller.feeds[0].items.isEmpty)
+        XCTAssertEqual(controller.feeds[1].items.first?.id, "original")
+        gate.release()
+        await task.value
+        XCTAssertEqual(calls[catalogs[0].id], 2)
+        XCTAssertEqual(calls[catalogs[1].id], 1)
+        XCTAssertEqual(controller.feeds[0].items.first?.id, "filtered")
+    }
+
+    func testPresentationOnlyReloadAndHidingDoNotFetchUnchangedCatalogs() async throws {
+        let controller = HomeFeedController()
+        let catalogs = HomeCatalog.catalogs(addons: [try addon()], includeTMDB: false)
+        var calls = 0
+        func source(_ catalog: HomeCatalog) -> ContentSource {
+            ContentSource(initialCacheID: catalog.id) { _ in
+                calls += 1
+                return ContentPage(items: [self.item(catalog.id)], cacheID: catalog.id)
+            }
+        }
+        await controller.load(catalogs: catalogs, source: source)
+        await controller.load(catalogs: catalogs.reversed(), preservingUnchanged: true, source: source)
+        XCTAssertEqual(controller.feeds.map(\.catalog.id), ["second", "first"])
+        XCTAssertEqual(calls, 2)
+        await controller.load(catalogs: [catalogs[1]], preservingUnchanged: true, source: source)
+        XCTAssertEqual(controller.feeds.map(\.catalog.id), ["second"])
+        XCTAssertEqual(calls, 2)
+    }
+
+    func testKeepingAnUnchangedShelfPreservesItsPreviousRefreshError() async {
+        let controller = HomeFeedController()
+        let catalogs: [HomeCatalog] = [.tmdb(.popularMovies)]
+        await controller.load(catalogs: catalogs) { _ in
+            ContentSource(initialCacheID: "stable") { _ in
+                ContentPage(items: [self.item("saved")], cacheID: "stable")
+            }
+        }
+        await controller.load(catalogs: catalogs) { _ in
+            ContentSource(initialCacheID: "stable") { _ in throw URLError(.timedOut) }
+        }
+        await controller.load(catalogs: catalogs, preservingUnchanged: true) { _ in
+            ContentSource(initialCacheID: "stable") { _ in
+                XCTFail("Unchanged completed shelf was refetched")
+                return ContentPage(items: [])
+            }
+        }
+        XCTAssertEqual(controller.tmdbFeeds.first?.items.first?.id, "saved")
+        XCTAssertNotNil(controller.tmdbFeeds.first?.error)
+    }
+
+    func testOldFilteredResponseCannotReplaceNewSelection() async throws {
+        let controller = HomeFeedController(), gate = FeedGate()
+        let catalogs = Array(HomeCatalog.catalogs(addons: [try addon()], includeTMDB: false).prefix(1))
+        let old = Task {
+            await controller.load(catalogs: catalogs) { _ in
+                ContentSource(initialCacheID: "old-filter") { _ in
+                    await gate.suspend()
+                    return ContentPage(items: [self.item("old")], cacheID: "old-filter")
+                }
+            }
+        }
+        await gate.waitUntilStarted()
+        await controller.load(catalogs: catalogs, preservingUnchanged: true) { _ in
+            ContentSource(initialCacheID: "new-filter") { _ in
+                ContentPage(items: [self.item("new")], cacheID: "new-filter")
+            }
+        }
+        gate.release()
+        await old.value
+        XCTAssertEqual(controller.feeds.first?.items.first?.id, "new")
+        XCTAssertFalse(controller.isLoading)
+    }
+
     func testParentCancellationReachesOwnedRequestAndResetsLoading() async {
         let controller = HomeFeedController()
         let started = expectation(description: "Request started")
         let cancelled = expectation(description: "Request cancelled")
         let task = Task {
-            await controller.load(addons: [], includeTMDB: true) { catalog in
+            await controller.load(catalogs: HomeCatalog.catalogs(addons: [], includeTMDB: true)) { catalog in
                 ContentSource { _ in
                     guard case .tmdb(.popularMovies) = catalog else { return ContentPage(items: []) }
                     started.fulfill()
@@ -224,4 +320,38 @@ final class HomeFeedControllerTests: XCTestCase {
         XCTAssertFalse(controller.isLoading)
         XCTAssertTrue(controller.tmdbFeeds.allSatisfy { $0.error == nil })
     }
+    func testCombinedGroupsShareUnderlyingRequestsAndSettleBeforeUnrelatedShelf() async {
+        let controller = HomeFeedController(), gate = FeedGate()
+        let sources = TMDBCatalog.allCases.map(HomeCatalog.tmdb)
+        let group = CombinedCatalog(name: "First", members: [sources[0].id, sources[1].id])
+        let overlap = CombinedCatalog(name: "Second", members: [sources[1].id, sources[2].id])
+        let preferences = CatalogPreferences(groups: [group, overlap])
+        let requested = preferences.requested(
+            sources + [.combined(group), .combined(overlap)], heroID: group.id)
+        var calls: [String: Int] = [:]
+        let task = Task {
+            await controller.load(catalogs: requested) { catalog in
+                ContentSource { _ in
+                    calls[catalog.id, default: 0] += 1
+                    if catalog.id == sources[3].id { await gate.suspend() }
+                    return ContentPage(items: [self.item(catalog.id)], cacheID: catalog.id)
+                }
+            }
+        }
+        await gate.waitUntilStarted()
+        for _ in 0..<500 {
+            if Set(group.members).isSubset(of: controller.settledCatalogIDs) { break }
+            try? await Task.sleep(for: .milliseconds(2))
+        }
+        XCTAssertTrue(Set(group.members).isSubset(of: controller.settledCatalogIDs))
+        XCTAssertTrue(controller.isLoading)
+        XCTAssertFalse(controller.settledCatalogIDs.contains(sources[3].id))
+        gate.release()
+        await task.value
+        XCTAssertEqual(calls.count, sources.count)
+        XCTAssertTrue(calls.values.allSatisfy { $0 == 1 })
+        controller.cancel()
+        XCTAssertTrue(controller.settledCatalogIDs.isEmpty)
+    }
+
 }

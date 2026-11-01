@@ -111,6 +111,22 @@ final class TVDBTests: XCTestCase {
         XCTAssertEqual(enriched.name, show.name)
     }
 
+    func testTextlessPosterIsExposedWithoutChangingRegularPosterSelection() throws {
+        let decoded = try JSONDecoder().decode(
+            TVDBSeries.self,
+            from: Data(
+                #"{"id":12,"artworks":[{"type":1,"image":"https://artworks.thetvdb.com/titled.jpg","language":"eng","score":9,"width":1600,"includesText":true},{"type":1,"image":"https://artworks.thetvdb.com/clean.jpg","language":"eng","score":8,"width":1200,"includesText":false},{"type":3,"image":"https://artworks.thetvdb.com/wide.jpg","language":"eng"}]}"#
+                    .utf8))
+        let result = decoded.enrichment(
+            artworkTypes: [
+                TVDBNamedRecord(id: 1, name: "Poster", slug: nil, recordType: "series", type: nil),
+                TVDBNamedRecord(id: 3, name: "Background", slug: nil, recordType: "series", type: nil),
+            ])
+        XCTAssertEqual(result.posterURL, "https://artworks.thetvdb.com/titled.jpg")
+        XCTAssertEqual(result.textlessPosterURL, "https://artworks.thetvdb.com/clean.jpg")
+        XCTAssertEqual(result.backdropURL, "https://artworks.thetvdb.com/wide.jpg")
+    }
+
     func testAmbiguousMatchesAndUnsupportedTypesAreNotGuessed() async throws {
         fixture.handler = { request in
             if request.url!.path == "/v4/login" { return (200, self.envelope(#"{"token":"token"}"#)) }

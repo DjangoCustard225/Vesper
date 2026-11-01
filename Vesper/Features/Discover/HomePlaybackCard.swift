@@ -20,7 +20,7 @@ struct HomePlaybackCard: View {
         Color.clear.aspectRatio(1.42, contentMode: .fit)
             .overlay {
                 GeometryReader { geometry in
-                    Artwork(url: media.background ?? media.poster)
+                    Artwork(url: item.background ?? item.poster)
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .overlay(alignment: .leading) {
                             if let presentation {

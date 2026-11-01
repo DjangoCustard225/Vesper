@@ -1,10 +1,11 @@
 # Keep first-party app language statistics focused on Swift.
 Scripts/** -linguist-detectable
 Dependencies/** linguist-vendored
+Packages/Unrar/** linguist-vendored -whitespace
 *.xcodeproj/** linguist-generated
 
 # Preserve the bundled upstream license text byte-for-byte, including its final blank line.
-Vesper/Resources/*-LICENSE.txt whitespace=-blank-at-eof
+Vesper/Resources/*-LICENSE.txt -whitespace
 
 # Local publishing rules do not belong in downloadable source archives.
 .gitignore export-ignore

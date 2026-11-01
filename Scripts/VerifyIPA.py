@@ -94,7 +94,7 @@ def verify(ipa, root, *, unstripped=False, write_checksum=True, native_icon=Fals
             raise ValueError("Expected one packaged application")
         prefix = infos[0].removesuffix("Info.plist")
         actual = plistlib.loads(archive.read(infos[0]))
-        for key in ("CFBundleDisplayName", "CFBundleShortVersionString", "CFBundleVersion", "CFBundleURLTypes", "LSApplicationQueriesSchemes"):
+        for key in ("CFBundleDisplayName", "CFBundleShortVersionString", "CFBundleVersion", "CFBundleURLTypes", "LSApplicationQueriesSchemes", "UIBackgroundModes", "BGTaskSchedulerPermittedIdentifiers", "NSSupportsLiveActivities"):
             if actual.get(key) != expected[key]:
                 raise ValueError(f"Packaged {key} does not match Vesper/Info.plist")
         if actual.get("CFBundleIdentifier") != bundle_id or actual.get("MinimumOSVersion") != minimum_os:

@@ -32,6 +32,13 @@ struct CreditsView: View {
             VStack(alignment: .leading, spacing: 24) {
                 TMDBAttribution()
                 VStack(alignment: .leading, spacing: 12) {
+                    Text("SwiftNZB").font(.headline)
+                    Text(
+                        "Usenet downloading, resume support and PAR2 repair adapted from SwiftNZB. RAR extraction uses Unrar.swift and UnRAR."
+                    ).foregroundStyle(.secondary)
+                    NavigationLink("License") { PlayerLicenseView(name: "SwiftNZB") }
+                }
+                VStack(alignment: .leading, spacing: 12) {
                     Text("TheTVDB").font(.headline)
                     Text("Optional TV show metadata and artwork provided by TheTVDB.")
                         .foregroundStyle(.secondary)

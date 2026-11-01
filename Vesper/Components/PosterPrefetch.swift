@@ -3,6 +3,7 @@ import VesperCore
 
 @MainActor @Observable
 final class ArtworkPrefetchState {
+    var isVisible = false
     private var visibleIDs: Set<String> = []
     private var leadingIndex: Int?
     private var forward = true
@@ -26,6 +27,7 @@ final class ArtworkPrefetchState {
     }
 
     func reset() {
+        isVisible = false
         visibleIDs = []
         leadingIndex = nil
         forward = true
@@ -45,10 +47,7 @@ struct PosterShelf: View {
     let items: [MediaItem]
     var horizontalPadding: CGFloat = 20
     @State private var prefetch = ArtworkPrefetchState()
-    @State private var visible = false
     @Environment(\.displayScale) private var displayScale
-
-    private var urls: [URL] { visible ? prefetch.urls(items) : [] }
 
     var body: some View {
         ScrollView(.horizontal) {
@@ -67,15 +66,22 @@ struct PosterShelf: View {
             }.padding(.horizontal, horizontalPadding)
         }.frame(height: Design.posterWidth * 1.5)
             .scrollIndicators(.hidden).appScrollEdges()
-            .onScrollVisibilityChange(threshold: 0.01) { visible = $0 }
-            .prefetchArtwork(
-                urls,
-                size: ArtworkDecodeSize(
-                    width: Design.posterWidth, height: Design.posterWidth * 1.5, scale: displayScale)
-            )
-            .onDisappear {
-                visible = false
-                prefetch.reset()
-            }
+            .onScrollVisibilityChange(threshold: 0.01) { prefetch.isVisible = $0 }
+            .modifier(PosterShelfPrefetch(prefetch: prefetch, items: items, scale: displayScale))
+            .onDisappear { prefetch.reset() }
+    }
+}
+
+/// Prefetch bookkeeping must not rebuild the shelf's navigation links during a scroll.
+private struct PosterShelfPrefetch: ViewModifier {
+    let prefetch: ArtworkPrefetchState
+    let items: [MediaItem]
+    let scale: CGFloat
+
+    func body(content: Content) -> some View {
+        content.prefetchArtwork(
+            prefetch.isVisible ? prefetch.urls(items) : [],
+            size: ArtworkDecodeSize(
+                width: Design.posterWidth, height: Design.posterWidth * 1.5, scale: scale))
     }
 }

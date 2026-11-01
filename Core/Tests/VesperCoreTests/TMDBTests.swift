@@ -357,6 +357,21 @@ extension TMDBTests {
             "https://image.tmdb.org/t/p/w500/safe.png")
     }
 
+    func testTextlessPosterPrefersUntranslatedTMDBImageAndUsesBackdropAsSeparateFallback() throws {
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        let configuration = try decoder.decode(TMDBConfiguration.self, from: Data(config.utf8))
+        let details = try decoder.decode(
+            TMDBDetails.self,
+            from: Data(
+                #"{"id":42,"backdrop_path":"/wide.jpg","images":{"posters":[{"file_path":"/english.jpg","iso_639_1":"en","width":2000,"vote_average":10},{"file_path":"/textless-small.jpg","iso_639_1":null,"width":1000,"vote_average":7},{"file_path":"/textless-large.jpg","iso_639_1":null,"width":2000,"vote_average":7}]}}"#
+                    .utf8))
+        let result = details.enrichment(type: "movie", configuration: configuration)
+        XCTAssertNil(result.posterURL)
+        XCTAssertEqual(result.textlessPosterURL, "https://image.tmdb.org/t/p/original/textless-large.jpg")
+        XCTAssertEqual(result.backdropURL, "https://image.tmdb.org/t/p/w1280/wide.jpg")
+    }
+
     func testMovieDirectorsIncludeDeduplicatedPortraitsAndNamesWithoutImages() throws {
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
@@ -464,9 +479,11 @@ extension TMDBTests {
         var legacy = try XCTUnwrap(
             JSONSerialization.jsonObject(with: JSONEncoder().encode(enrichment)) as? [String: Any])
         legacy.removeValue(forKey: "crew")
+        legacy.removeValue(forKey: "textlessPosterURL")
         let decoded = try JSONDecoder().decode(
             MetadataEnrichment.self, from: JSONSerialization.data(withJSONObject: legacy))
         XCTAssertNil(decoded.crew)
+        XCTAssertNil(decoded.textlessPosterURL)
         XCTAssertEqual(decoded.directors, ["Director Name"])
         XCTAssertEqual(decoded.directorPeople.count, 1)
     }

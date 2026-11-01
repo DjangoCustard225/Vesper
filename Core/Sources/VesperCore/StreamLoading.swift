@@ -6,15 +6,18 @@ public struct StreamOption: Identifiable, Sendable {
     public let addonName: String
     public let source: StreamSource
     public var provider: InstalledAddon?
+    public let nzbRelease: NZBRelease?
     public var fetchedAt: Date
 
     public init(
-        addonName: String, source: StreamSource, provider: InstalledAddon? = nil, fetchedAt: Date = Date()
+        addonName: String, source: StreamSource, provider: InstalledAddon? = nil, fetchedAt: Date = Date(),
+        nzbRelease: NZBRelease? = nil
     ) {
         id = StreamPolicy.identity(source)
         self.addonName = addonName
         self.source = source
         self.provider = provider
+        self.nzbRelease = nzbRelease
         self.fetchedAt = fetchedAt
     }
 }
@@ -40,7 +43,7 @@ public struct StreamResults: Sendable {
         var failures = failures
         if skipped > 0 {
             failures.append(
-                "\(skipped) source\(skipped == 1 ? "" : "s") can’t be opened directly in an external player. Use providers with HTTP video sources."
+                "\(skipped) source\(skipped == 1 ? "" : "s") cannot be opened by this test build. Use HTTP video or supported NZB sources."
             )
         }
         return StreamResults(options: supported, failures: failures)

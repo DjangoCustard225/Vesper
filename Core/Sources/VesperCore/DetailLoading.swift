@@ -5,11 +5,13 @@ public struct DetailPlaybackChoice: Sendable {
     public let id: String
     public let title: String?
     public let embedded: [StreamSource]?
+    public let episode: Episode?
 
-    public init(id: String, title: String? = nil, embedded: [StreamSource]? = nil) {
+    public init(id: String, title: String? = nil, embedded: [StreamSource]? = nil, episode: Episode? = nil) {
         self.id = id
         self.title = title
         self.embedded = embedded
+        self.episode = episode
     }
 }
 
@@ -26,6 +28,12 @@ public final class DetailLoadingController {
     public private(set) var seasonLoading = false
     public private(set) var seasonError: String?
     public private(set) var seasonEpisodes: [Episode] = []
+    public private(set) var initialEpisode: Episode?
+    public private(set) var selectingInitialEpisode = false
+    public private(set) var initialEpisodeError: String?
+    @ObservationIgnored private var resolvedInitialEpisode = false
+    @ObservationIgnored private var userSelectedSeason = false
+    @ObservationIgnored private var initialEpisodeRequestID = UUID()
     @ObservationIgnored private let startPlayback: Bool
     @ObservationIgnored private let resumeRecord: WatchRecord?
     @ObservationIgnored private var didStartPlayback = false
@@ -73,6 +81,11 @@ public final class DetailLoadingController {
         enrichmentRequestID = UUID()
         seasonRequestID = UUID()
         seasonEpisodes = []
+        initialEpisode = nil
+        selectingInitialEpisode = false
+        initialEpisodeError = nil
+        resolvedInitialEpisode = false
+        initialEpisodeRequestID = UUID()
         seasonLoading = false
         seasonError = nil
         let (result, failure) = await metadata(item)
@@ -140,36 +153,130 @@ public final class DetailLoadingController {
         }
     }
 
-    public func defaultPlayback() -> DetailPlaybackChoice {
+    public func selectSeason(_ season: Int?) {
+        self.season = season
+        userSelectedSeason = true
+    }
+
+    /// Run after watched-state synchronization. A user-selected season is never overwritten by a late result.
+    public func selectInitialEpisode(
+        history: WatchProgress,
+        fetch: @MainActor (MediaItem, MetadataEnrichment?, Int) async throws -> [Episode]
+    ) async {
+        guard media.type == "series", !isLive else { return }
+        let current = generation, request = UUID(), originalSeason = season
+        let original = media, details = enrichment
+        initialEpisodeRequestID = request
+        selectingInitialEpisode = true
+        initialEpisodeError = nil
+        resolvedInitialEpisode = true
+        defer {
+            if generation == current, initialEpisodeRequestID == request { selectingInitialEpisode = false }
+        }
+        let index = WatchStatusIndex(history)
+        var loaded: [Int: [Episode]] = [:]
+        func fetchSeason(_ season: Int) async throws -> [Episode] {
+            let values = try await fetch(original, details, season)
+            loaded[season] = values
+            return values
+        }
+        do {
+            let continuing = ([resumeRecord].compactMap { $0 } + history.continueWatching).first {
+                $0.media.isSameTitle(as: original) && !$0.watched && $0.duration > 0
+            }
+            var preferred: Episode?
+            if let continuing {
+                let id = continuing.playbackID(for: original)
+                let known = (original.videos ?? []) + seasonEpisodes
+                if let episode = UpNext.currentEpisode(media: original, videoID: id, knownEpisodes: known),
+                    !index.isWatched(original, episode: episode)
+                {
+                    if let number = episode.season {
+                        let values = try await fetchSeason(number)
+                        preferred =
+                            values.first {
+                                $0.id == episode.id
+                                    || $0.watchHistoryID(for: original)
+                                        == episode.watchHistoryID(for: original)
+                            } ?? episode
+                    } else {
+                        preferred = episode
+                    }
+                }
+            }
+            if preferred == nil {
+                preferred = try await UpNext.firstUnwatched(
+                    seasons: seasons, isWatched: { index.isWatched(original, episode: $0) },
+                    fetchSeason: { number in
+                        if let cached = loaded[number] { return cached }
+                        return try await fetchSeason(number)
+                    })
+                // Some add-ons expose custom episode IDs without season numbering.
+                if seasons.isEmpty {
+                    preferred = (original.videos ?? []).first {
+                        !$0.id.isEmpty && !index.isWatched(original, episode: $0)
+                    }
+                }
+            }
+            guard !Task.isCancelled, generation == current, initialEpisodeRequestID == request,
+                enrichment?.reference == details?.reference
+            else { return }
+            initialEpisode = preferred
+            resolvedInitialEpisode = preferred != nil || !seasons.isEmpty || !(original.videos ?? []).isEmpty
+            if !userSelectedSeason, season == originalSeason, let preferred, let number = preferred.season {
+                season = number
+                if details?.mediaType == "tv", let values = loaded[number] {
+                    seasonRequestID = UUID()
+                    seasonEpisodes = values
+                    seasonLoading = false
+                    seasonError = nil
+                }
+            }
+        } catch is CancellationError {} catch {
+            if generation == current, initialEpisodeRequestID == request {
+                initialEpisodeError = error.localizedDescription
+            }
+        }
+    }
+
+    private func playback(for episode: Episode) -> DetailPlaybackChoice {
+        DetailPlaybackChoice(
+            id: episode.id, title: episode.label + " · " + episode.displayTitle,
+            embedded: episode.streams, episode: episode)
+    }
+
+    public func defaultPlayback() -> DetailPlaybackChoice? {
+        if media.type == "series", !isLive {
+            guard !selectingInitialEpisode, initialEpisodeError == nil else { return nil }
+            if let initialEpisode { return playback(for: initialEpisode) }
+            if resolvedInitialEpisode { return nil }
+        }
         let rawID = media.behaviorHints?.defaultVideoId ?? media.playbackID
         let id = isLive ? media.id : MediaIdentity.videoID(rawID, for: media)
         let episode = media.videos?.first { $0.id == id }
         return DetailPlaybackChoice(
             id: id, title: episode.map { $0.label + " · " + $0.displayTitle },
-            embedded: episode?.streams)
+            embedded: episode?.streams, episode: episode)
     }
 
     public func requestedPlayback() -> DetailPlaybackChoice? {
-        guard startPlayback, !didStartPlayback, !loading, !enriching, error == nil, metadataError == nil
-        else {
-            return nil
-        }
-        if let resumeRecord {
-            didStartPlayback = true
+        guard startPlayback, !didStartPlayback, !loading, !enriching, !selectingInitialEpisode,
+            initialEpisodeError == nil, error == nil, metadataError == nil
+        else { return nil }
+        let choice: DetailPlaybackChoice?
+        if media.type == "series", !isLive, resolvedInitialEpisode {
+            choice = initialEpisode.map(playback)
+        } else if let resumeRecord {
             let id = resumeRecord.playbackID(for: media)
             let episode = (media.videos ?? []).first { MediaIdentity.videoID($0.id, for: media) == id }
-            return DetailPlaybackChoice(id: id, title: resumeRecord.subtitle, embedded: episode?.streams)
+            choice = DetailPlaybackChoice(
+                id: id, title: resumeRecord.subtitle, embedded: episode?.streams, episode: episode)
+        } else if media.type != "series" || isLive || media.behaviorHints?.defaultVideoId != nil {
+            choice = defaultPlayback()
+        } else {
+            choice = episodes.first.map(playback)
         }
-        if media.type != "series" || isLive || media.behaviorHints?.defaultVideoId != nil {
-            didStartPlayback = true
-            return defaultPlayback()
-        }
-        if let episode = episodes.first {
-            didStartPlayback = true
-            return DetailPlaybackChoice(
-                id: episode.id, title: episode.label + " · " + episode.displayTitle,
-                embedded: episode.streams)
-        }
-        return nil
+        if choice != nil { didStartPlayback = true }
+        return choice
     }
 }

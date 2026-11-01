@@ -1,9 +1,31 @@
 import SwiftUI
 import VesperCore
 
-/// Both catalog providers use the same retry, empty-state, and automatic paging rules.
+@MainActor
+protocol CatalogContentLoading: AnyObject {
+    var items: [MediaItem] { get }
+    var loading: Bool { get }
+    var error: String? { get }
+    var hasMore: Bool { get }
+    var pageRevision: UUID { get }
+    var allowsAutomaticPaging: Bool { get }
+    func loadMore() async
+    func retryPages() async
+}
+
+extension CatalogController: CatalogContentLoading {
+    var allowsAutomaticPaging: Bool { error == nil }
+    func retryPages() async { await loadMore() }
+}
+
+extension CombinedCatalogController: CatalogContentLoading {
+    var allowsAutomaticPaging: Bool { true }
+    func retryPages() async { await retry() }
+}
+
+/// All catalogs share the same grid, empty-state and automatic paging presentation.
 struct CatalogContentView: View {
-    let model: CatalogController
+    let model: any CatalogContentLoading
     var spacing: CGFloat = 24
     var loadingTitle: String?
     var progressPadding: CGFloat = 16
@@ -11,7 +33,7 @@ struct CatalogContentView: View {
     var emptyDescription: String?
 
     private var canLoadMore: Bool {
-        model.hasMore && !model.loading && model.error == nil
+        model.hasMore && !model.loading && model.allowsAutomaticPaging
     }
 
     var body: some View {
@@ -23,7 +45,7 @@ struct CatalogContentView: View {
                 }.padding(progressPadding)
             }
             if let error = model.error {
-                ErrorNotice(message: error) { Task { await model.loadMore() } }
+                ErrorNotice(message: error) { Task { await model.retryPages() } }
             }
             if !model.loading, model.items.isEmpty, model.error == nil {
                 if let emptyDescription {

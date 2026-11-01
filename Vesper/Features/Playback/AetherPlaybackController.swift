@@ -29,6 +29,8 @@ final class AetherPlaybackController {
     @ObservationIgnored private let url: URL
     @ObservationIgnored private let resumeSeconds: Double
     @ObservationIgnored private let isLive: Bool
+    @ObservationIgnored private let mediaInfo: PlaybackMediaInfo?
+    @ObservationIgnored private var nowPlaying: SystemNowPlaying?
     @ObservationIgnored private var scrobbleReporter = TraktPlaybackReporter()
     @ObservationIgnored private let onScrobble: (@MainActor (TraktScrobbleEvent) -> Void)?
     @ObservationIgnored private let onProgress: (@MainActor (PlaybackProgressUpdate) -> Void)?
@@ -46,12 +48,13 @@ final class AetherPlaybackController {
     @ObservationIgnored private var audioSessionLease: UUID?
     private var ownsAudioSession: Bool { audioSessionLease != nil }
     @ObservationIgnored private let restorePresentation: PlaybackRestoration?
-    @ObservationIgnored private var previousIdleTimer = false
+    @ObservationIgnored private let idleTimerID = UUID()
     @ObservationIgnored private var wantsPlayback = true
     @ObservationIgnored private var progressReporter = PlaybackProgressReporter()
 
     init(
         url: URL, resumeSeconds: Double = 0, isLive: Bool = false,
+        mediaInfo: PlaybackMediaInfo? = nil,
         onProgress: (@MainActor (PlaybackProgressUpdate) -> Void)? = nil,
         onScrobble: (@MainActor (TraktScrobbleEvent) -> Void)? = nil,
         restorePresentation: PlaybackRestoration? = nil,
@@ -60,6 +63,7 @@ final class AetherPlaybackController {
         self.url = url
         self.resumeSeconds = resumeSeconds.isFinite && resumeSeconds > 0 ? resumeSeconds : 0
         self.isLive = isLive
+        self.mediaInfo = mediaInfo
         self.onProgress = onProgress
         self.onScrobble = onScrobble
         self.restorePresentation = restorePresentation
@@ -67,6 +71,7 @@ final class AetherPlaybackController {
     }
 
     isolated deinit {
+        nowPlaying?.invalidate()
         loadTask?.cancel()
         seekTask?.cancel()
         nativeAudioTask?.cancel()
@@ -79,7 +84,6 @@ final class AetherPlaybackController {
             engine.bind(view: surface)
             return
         }
-        previousIdleTimer = UIApplication.shared.isIdleTimerDisabled
         do {
             let engine = try AetherEngine()
             self.engine = engine
@@ -87,6 +91,7 @@ final class AetherPlaybackController {
             engine.ownsVideoNowPlayingSession = true
             engine.bind(view: surface)
             try activateAudio()
+            if let mediaInfo { nowPlaying = SystemNowPlaying(owner: self, media: mediaInfo, isLive: isLive) }
             engine.objectWillChange.debounce(for: .milliseconds(16), scheduler: RunLoop.main)
                 .sink { [weak self] in self?.synchronize() }.store(in: &subscriptions)
             engine.clock.$currentTime.throttle(for: .milliseconds(250), scheduler: RunLoop.main, latest: true)
@@ -132,6 +137,8 @@ final class AetherPlaybackController {
         }
     }
 
+    var canAcceptRemoteCommands: Bool { loaded && !stopped && error == nil }
+
     func togglePlayback() {
         guard let engine, !stopped, error == nil else { return }
         if isPlaying {
@@ -166,7 +173,8 @@ final class AetherPlaybackController {
         applyPlaybackRate()
         isPlaying = false
         reportScrobble()
-        UIApplication.shared.isIdleTimerDisabled = previousIdleTimer
+        nowPlaying?.update()
+        ScreenAwake.set(idleTimerID, active: false)
     }
 
     func seek(fraction: Double) {
@@ -175,6 +183,7 @@ final class AetherPlaybackController {
         }
         seekTask?.cancel()
         timeline = PlaybackTimeline(elapsed: seconds, duration: timeline.duration, isSeekable: true)
+        nowPlaying?.update()
         seekTask = Task { [weak self] in
             await engine.seek(to: seconds)
             guard !Task.isCancelled else { return }
@@ -228,6 +237,7 @@ final class AetherPlaybackController {
     private func applyPlaybackRate() {
         guard loaded, !stopped, !hasEnded, error == nil else { return }
         engine?.setRate(isBoosting ? PlaybackSpeed.boost : speed)
+        nowPlaying?.update()
     }
 
     func setFill(_ fill: Bool) {
@@ -272,7 +282,7 @@ final class AetherPlaybackController {
         isPlaying = false
         cancelWork()
         releaseEngine()
-        UIApplication.shared.isIdleTimerDisabled = previousIdleTimer
+        ScreenAwake.set(idleTimerID, active: false)
     }
 
     private func cancelWork() {
@@ -291,6 +301,8 @@ final class AetherPlaybackController {
     }
 
     private func releaseEngine() {
+        nowPlaying?.invalidate()
+        nowPlaying = nil
         let engine = engine
         let lease = audioSessionLease
         self.engine = nil
@@ -336,10 +348,11 @@ final class AetherPlaybackController {
             isBoosting = false
             applyPlaybackRate()
         }
-        UIApplication.shared.isIdleTimerDisabled = isPlaying ? true : previousIdleTimer
+        ScreenAwake.set(idleTimerID, active: isPlaying)
         pictureInPicture.configure(owner: self)
         reportProgress(force: hasEnded)
         reportScrobble()
+        nowPlaying?.update()
     }
 
     private static func track(_ value: TrackInfo) -> PlaybackTrack? {
@@ -412,7 +425,7 @@ final class AetherPlaybackController {
         wantsPlayback = false
         cancelWork()
         releaseEngine()
-        UIApplication.shared.isIdleTimerDisabled = previousIdleTimer
+        ScreenAwake.set(idleTimerID, active: false)
     }
 
     private func observeAudioSession() {

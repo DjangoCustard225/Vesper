@@ -16,7 +16,7 @@ struct PosterTitle: View {
             } else if isLoading {
                 Color.clear.frame(height: compact ? 90 : 125)
             } else {
-                CachedArtworkImage(url: logoURL.flatMap { try? AddonURL.http($0) }) { phase in
+                CachedArtworkImage(url: DownloadFiles.artworkURL(logoURL)) { phase in
                     if let image = phase.image { titleImage(image) } else { fallbackTitle }
                 }
             }

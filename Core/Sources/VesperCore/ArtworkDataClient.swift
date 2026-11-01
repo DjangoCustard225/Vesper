@@ -4,6 +4,8 @@ import FoundationNetworking
 #endif
 
 public actor ArtworkDataClient {
+    public static let shared = ArtworkDataClient()
+
     private let session: URLSession
     private let ownsSession: Bool
     private let memory = NSCache<NSURL, NSData>()

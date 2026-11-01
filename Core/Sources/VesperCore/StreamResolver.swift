@@ -1,6 +1,6 @@
 import Foundation
 
-public enum PlaybackDestination: Equatable { case native(URL), external(URL) }
+public enum PlaybackDestination: Equatable { case native(URL), external(URL), usenet }
 
 public enum StreamResolver {
     public static func resolve(_ stream: StreamSource) throws -> PlaybackDestination {
@@ -16,6 +16,10 @@ public enum StreamResolver {
                 throw AddonError.unsupportedStream
             }
             return .native(url)
+        }
+        if let raw = stream.nzbUrl {
+            _ = try AddonURL.http(raw)
+            return .usenet
         }
         throw AddonError.unsupportedStream
     }

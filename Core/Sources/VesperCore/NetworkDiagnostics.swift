@@ -2,6 +2,7 @@ import Foundation
 
 public enum NetworkOperation: String, Codable, Sendable {
     case tmdb, tvdb, trakt, manifest, catalog, metadata, streams, artwork
+    case indexer
     case introSegments
     case traktScrobbleStart, traktScrobblePause, traktScrobbleStop
 

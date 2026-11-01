@@ -7,6 +7,7 @@ struct ImmersiveScrollView<Content: View>: View {
     var artworks: [ImmersiveArtworkSource] = []
     var artworkPage: CGFloat = 0
     var isLandscape = false
+    var usesPortraitPoster = false
     @ViewBuilder var content: Content
     @State private var offset = ImmersiveScrollOffset()
 
@@ -24,7 +25,8 @@ struct ImmersiveScrollView<Content: View>: View {
             .background(alignment: .top) {
                 ImmersiveScrollBackdrop(
                     artwork: artwork, headerHeight: headerHeight, artworks: artworks,
-                    artworkPage: artworkPage, isLandscape: isLandscape, offset: offset)
+                    artworkPage: artworkPage, isLandscape: isLandscape,
+                    usesPortraitPoster: usesPortraitPoster, offset: offset)
             }
     }
 }
@@ -41,6 +43,7 @@ private struct ImmersiveScrollBackdrop: View {
     let artworks: [ImmersiveArtworkSource]
     let artworkPage: CGFloat
     let isLandscape: Bool
+    let usesPortraitPoster: Bool
     let offset: ImmersiveScrollOffset
 
     var body: some View {
@@ -50,7 +53,8 @@ private struct ImmersiveScrollBackdrop: View {
                 // Artwork remains outside the moving content, pinned during deep pulls.
                 if artworks.isEmpty {
                     ImmersiveArtwork(
-                        source: artwork, isLandscape: isLandscape, pullDistance: max(0, -scrollOffset)
+                        source: artwork, isLandscape: isLandscape, pullDistance: max(0, -scrollOffset),
+                        usesPortraitPoster: usesPortraitPoster
                     )
                     .frame(width: viewport.size.width, height: headerHeight)
                     .offset(y: -max(0, scrollOffset))

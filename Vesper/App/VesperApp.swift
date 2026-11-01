@@ -3,6 +3,7 @@ import VesperCore
 
 @main
 struct VesperApp: App {
+    @UIApplicationDelegateAdaptor(DownloadAppDelegate.self) private var downloadDelegate
     @State private var store = AppStore()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -12,10 +13,13 @@ struct VesperApp: App {
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active {
                         store.refreshPlayers()
+                        store.downloads.enterForeground()
+                        store.downloads.start()
                         Task { await store.resumeTrakt() }
                     }
                     if phase == .background {
                         store.trakt.suspend()
+                        store.downloads.enterBackground()
                         Task {
                             await store.flushWatchProgress()
                             await DiagnosticRecorder.shared.flush()
@@ -40,10 +44,53 @@ struct RootView: View {
     @State private var showingSearch = false
     @State private var pendingSearchResult: MediaItem?
     @State private var searchResult: MediaItem?
+    @State private var launch = OfflineLaunch()
 
     var body: some View {
+        Group {
+            switch launch.mode {
+            case .waiting:
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity).appBackground()
+            case .offline:
+                NavigationStack {
+                    LibraryView(
+                        offlineOnly: true,
+                        goOnline: { launch.goOnline(available: store.downloads.networkAvailable) })
+                }
+            case .online:
+                tabs
+            }
+        }
+        .onAppear { checkInitialNetwork() }
+        .onChange(of: store.downloads.networkStatusKnown) { _, _ in checkInitialNetwork() }
+        .alert(
+            "Downloads",
+            isPresented: Binding(
+                get: { store.downloads.error != nil }, set: { if !$0 { store.downloads.error = nil } })
+        ) {
+            Button("OK") { store.downloads.error = nil }
+        } message: {
+            Text(store.downloads.error ?? "")
+        }
+        .alert(
+            "Storage",
+            isPresented: Binding(
+                get: { store.storageError != nil }, set: { if !$0 { store.storageError = nil } })
+        ) {
+            Button("OK") { store.storageError = nil }
+        } message: {
+            Text(store.storageError ?? "")
+        }
+    }
+
+    private func checkInitialNetwork() {
+        guard store.downloads.networkStatusKnown else { return }
+        launch.observe(available: store.downloads.networkAvailable)
+    }
+
+    private var tabs: some View {
         @Bindable var store = store
-        TabView(
+        return TabView(
             selection: Binding(
                 get: { selectedTab },
                 set: { tab in
@@ -60,7 +107,9 @@ struct RootView: View {
             Tab("Search", systemImage: "magnifyingglass", value: AppTab.search, role: .search) { Color.clear }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
-        .task(id: store.contentContext) { await store.refresh() }
+        .task(id: ContentRequestID(input: store.homeCatalogRevision, context: store.contentContext)) {
+            await store.refresh(preservingUnchanged: true)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .vesperMetadataUpdated)) { notification in
             if let update = notification.object as? MetadataUpdate { store.metadataDidRefresh(update) }
         }
@@ -105,15 +154,7 @@ struct RootView: View {
                     }
             }
         }
-        .alert(
-            "Storage",
-            isPresented: Binding(
-                get: { store.storageError != nil }, set: { if !$0 { store.storageError = nil } })
-        ) {
-            Button("OK") { store.storageError = nil }
-        } message: {
-            Text(store.storageError ?? "")
-        }
+
     }
 
     private var settingsNavigation: some View {

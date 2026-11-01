@@ -14,6 +14,8 @@ struct HeroPresentation {
         var image: Image?
         if let details = try? await store.enrichedMetadata(for: item), !Task.isCancelled {
             media = details.applying(to: item)
+            media.poster = item.poster
+            media.background = item.background
             if let value = details.titleLogoURL, let url = try? AddonURL.http(value),
                 let prepared = try? await ArtworkPipeline.shared.image(for: url, priority: priority),
                 !Task.isCancelled
@@ -34,7 +36,6 @@ struct HeroCarousel: View {
     let height: CGFloat
     let isLandscape: Bool
     @Binding var horizontalPage: CGFloat
-    @Binding var artworkSources: [String: ImmersiveArtworkSource]
     @State private var selectedID: String?
     @State private var presentations: [String: HeroPresentation] = [:]
     @State private var presentationRevision: String?
@@ -43,7 +44,7 @@ struct HeroCarousel: View {
         guard !items.isEmpty else { return [] }
         let index = items.firstIndex { $0.key == selectedID } ?? 0
         return items[max(0, index - 1)...min(items.count - 1, index + 1)].compactMap {
-            (artworkSources[$0.key]?.preferred ?? $0.background ?? $0.poster).flatMap {
+            ($0.type == "series" ? ($0.poster ?? $0.background) : ($0.background ?? $0.poster)).flatMap {
                 try? AddonURL.http($0)
             }
         }
@@ -84,16 +85,21 @@ struct HeroCarousel: View {
         .prefetchArtwork(nearbyArtwork)
         .overlay(alignment: .bottom) {
             if items.count > 1 {
-                HeroPageControl(
-                    titles: items.map(\.name),
-                    selection: Binding(
-                        get: { items.firstIndex { $0.key == selectedID } ?? 0 },
-                        set: { index in
-                            guard items.indices.contains(index) else { return }
-                            withAnimation(reduceMotion ? nil : .snappy) { selectedID = items[index].key }
-                        })
-                )
-                .frame(height: Design.minimumHitTarget).padding(.horizontal, 20).padding(.bottom, 4)
+                HStack(spacing: 2) {
+                    ForEach(Array(items.enumerated()), id: \.element.key) { index, item in
+                        Button {
+                            withAnimation(reduceMotion ? nil : .snappy) { selectedID = item.key }
+                        } label: {
+                            Circle()
+                                .fill(.white.opacity((selectedID ?? items.first?.key) == item.key ? 1 : 0.35))
+                                .frame(width: 5, height: 5).padding(.horizontal, 3).padding(.vertical, 5)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Page \(index + 1) of \(items.count), \(item.name)")
+                        .accessibilityAddTraits(
+                            (selectedID ?? items.first?.key) == item.key ? .isSelected : [])
+                    }
+                }.padding(.bottom, 4)
             }
         }
     }
@@ -125,9 +131,6 @@ struct HeroCarousel: View {
                     return
                 }
                 presentations[key] = presentation
-                artworkSources[key] = ImmersiveArtworkSource(
-                    backdrop: presentation.media.background,
-                    poster: presentation.media.poster)
                 if let item = remaining.next() { group.addTask { await prepare(item) } }
             }
         }
@@ -136,47 +139,5 @@ struct HeroCarousel: View {
     private func prepare(_ item: MediaItem) async -> (String, HeroPresentation) {
         let priority: ArtworkPriority = item.key == (selectedID ?? items.first?.key) ? .visible : .prefetch
         return (item.key, await HeroPresentation.prepare(item, store: store, priority: priority))
-    }
-}
-
-/// A single native adjustable control keeps dense dots usable without overlapping hit areas.
-private struct HeroPageControl: UIViewRepresentable {
-    let titles: [String]
-    @Binding var selection: Int
-
-    func makeUIView(context: Context) -> UIPageControl {
-        let control = UIPageControl()
-        control.pageIndicatorTintColor = .white.withAlphaComponent(0.35)
-        control.currentPageIndicatorTintColor = .white
-        control.backgroundStyle = .minimal
-        control.allowsContinuousInteraction = true
-        control.hidesForSinglePage = true
-        control.accessibilityLabel = "Featured titles"
-        control.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .valueChanged)
-        return control
-    }
-
-    func updateUIView(_ control: UIPageControl, context: Context) {
-        context.coordinator.selection = $selection
-        if control.numberOfPages != titles.count { control.numberOfPages = titles.count }
-        let page = min(max(0, selection), max(0, titles.count - 1))
-        if control.currentPage != page { control.currentPage = page }
-        control.isEnabled = context.environment.isEnabled && titles.count > 1
-        let title = titles.indices.contains(control.currentPage) ? titles[control.currentPage] : ""
-        control.accessibilityValue = "Page \(control.currentPage + 1) of \(titles.count), \(title)"
-    }
-
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIPageControl, context: Context) -> CGSize? {
-        CGSize(width: proposal.width ?? uiView.intrinsicContentSize.width, height: Design.minimumHitTarget)
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator(selection: $selection) }
-
-    @MainActor final class Coordinator: NSObject {
-        var selection: Binding<Int>
-
-        init(selection: Binding<Int>) { self.selection = selection }
-
-        @objc func changed(_ control: UIPageControl) { selection.wrappedValue = control.currentPage }
     }
 }

@@ -24,7 +24,7 @@ private final class PreparedArtworkCache: @unchecked Sendable {
 
 actor ArtworkPipeline {
     static let shared = ArtworkPipeline()
-    private nonisolated let client = ArtworkDataClient()
+    private nonisolated let client = ArtworkDataClient.shared
     private nonisolated let memory = PreparedArtworkCache()
     private var requests = SharedRequestPool<UIImage>()
     private var generation = UUID()
@@ -80,7 +80,17 @@ actor ArtworkPipeline {
                     await preparation.promote(key)
                 }
             ) { demand in
-                let data = try await client.data(for: url, priority: demand.priority)
+                let data: Data
+                if DownloadFiles.isArtwork(url) {
+                    data = try await Task.detached {
+                        guard DownloadFiles.size(url) <= 12 * 1024 * 1024 else {
+                            throw URLError(.cannotDecodeContentData)
+                        }
+                        return try Data(contentsOf: url, options: .mappedIfSafe)
+                    }.value
+                } else {
+                    data = try await client.data(for: url, priority: demand.priority)
+                }
                 try Task.checkCancellation()
                 let queued = ArtworkTimer()
                 let (image, queueTime, decodeTime) = try await preparation.run(key: key, demand: demand) {

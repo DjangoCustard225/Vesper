@@ -1,6 +1,7 @@
 import Foundation
 import Security
 import VesperCore
+import UsenetEngine
 
 enum SecureStorage {
     struct Key<Value: Codable>: Sendable {
@@ -57,15 +58,21 @@ extension SecureStorage.Key where Value == [InstalledAddon] {
 }
 
 extension SecureStorage.Key where Value == String {
+    static var nzbfinderAPIKey: Self { Self(account: "nzbfinderAPIKey") }
+
     static var tmdbCredential: Self { Self(account: "tmdbCredential") }
 
     static var heroCatalog: Self { Self(account: "heroCatalog") }
+    static var retiredFanartCredentials: Self { Self(account: "fanartCredentials") }
+}
+
+extension SecureStorage.Key where Value == CatalogPreferences {
+    static var catalogPreferences: Self { Self(account: "catalogPreferences") }
 }
 
 extension SecureStorage.Key where Value == TVDBCredentials {
     static var tvdbCredentials: Self { Self(account: "tvdbCredentials") }
 }
-
 extension SecureStorage.Key where Value == TraktTokens {
     static var traktTokens: Self { Self(account: "traktTokens") }
 }
@@ -111,4 +118,17 @@ enum WatchProgressStorage {
         WatchProgressRepository(
             url: LibraryStorage.url.deletingLastPathComponent().appendingPathComponent("watch-progress.json"))
     }
+}
+
+extension SecureStorage.Key where Value == UsenetProvider {
+    static var usenetProvider: Self { Self(account: "usenetProvider") }
+}
+
+extension SecureStorage.Key where Value == String {
+    static func archivePassword(_ id: UUID) -> Self {
+        Self(account: "usenetArchivePassword:" + id.uuidString)
+    }
+}
+extension SecureStorage.Key where Value == [UsenetProvider] {
+    static var usenetBackupProviders: Self { Self(account: "usenetBackupProviders") }
 }

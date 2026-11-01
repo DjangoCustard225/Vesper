@@ -6,11 +6,9 @@ extension AppStore {
         tmdbCredential.map { MetadataCacheKey.id(MetadataCacheKey.personFilmography(id, credential: $0)) }
     }
 
-    func addonSource(_ feed: CatalogFeed, genre: String? = nil) -> ContentSource {
+    func addonSource(_ feed: CatalogFeed, extras selections: [String: String]? = nil) -> ContentSource {
         let client = client
-        var base = feed.catalog.defaultExtras
-        if let genre, !genre.isEmpty { base["genre"] = genre }
-        let extras = base
+        let extras = feed.catalog.effectiveExtras(selections ?? catalogDefaults(feed))
         let initialCacheID = (try? MetadataCacheKey.addonCatalog(feed.addon, feed.catalog, extras: extras))
             .map(MetadataCacheKey.id)
         return ContentSource(initialCursor: 0, initialCacheID: initialCacheID) { cursor in

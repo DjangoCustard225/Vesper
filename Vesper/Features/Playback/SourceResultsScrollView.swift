@@ -17,6 +17,7 @@ extension EnvironmentValues {
 
 struct SourceResultsScrollView<Content: View>: View {
     @ViewBuilder let content: Content
+    @State private var position = ScrollPosition(edge: .top)
     @State private var hasStartedScrolling = false
     @State private var isAnimatingScroll = false
     @State private var isUserScrolling = false
@@ -29,6 +30,8 @@ struct SourceResultsScrollView<Content: View>: View {
                 .environment(\.sourceScrollEffectsEnabled, hasStartedScrolling && !isAnimatingScroll)
                 .environment(\.sourceScrollAtTop, isAtTop)
         }
+        .scrollPosition($position)
+        .defaultScrollAnchor(.top, for: .initialOffset)
         .onScrollGeometryChange(for: Bool.self) {
             $0.contentOffset.y + $0.contentInsets.top <= 1
         } action: { _, atTop in

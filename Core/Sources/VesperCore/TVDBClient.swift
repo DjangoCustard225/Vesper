@@ -62,7 +62,7 @@ public actor TVDBClient {
     }
 
     public nonisolated static func detailsKey(_ item: MediaItem, credentials: TVDBCredentials) -> String {
-        "tvdb:" + credentials.fingerprint + ":details:" + item.key
+        "tvdb:" + credentials.fingerprint + ":details-v3:" + item.key
     }
 
     public nonisolated static func episodesKey(id: Int, season: Int, credentials: TVDBCredentials) -> String {

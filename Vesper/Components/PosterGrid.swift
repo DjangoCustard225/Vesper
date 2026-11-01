@@ -8,6 +8,7 @@ struct PosterCard: View {
     var width: CGFloat? = nil
 
     private var watched: Bool { WatchProgress.supports(item) && store.isWatched(item) }
+    private var downloaded: Bool { store.downloads.completed.contains { $0.media.isSameTitle(as: item) } }
 
     var body: some View {
         Color.clear.aspectRatio(2 / 3, contentMode: .fit)
@@ -27,22 +28,37 @@ struct PosterCard: View {
             .overlay(alignment: .topTrailing) {
                 if watched { WatchedBadge().padding(8) }
             }
+            .overlay(alignment: .topLeading) {
+                if downloaded { DownloadedBadge().padding(8) }
+            }
             .frame(width: width, alignment: .topLeading)
             .contentShape(Rectangle())
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(item.name)
             .accessibilityValue(
-                [item.releaseInfo ?? item.typeLabel, watched ? "Watched" : nil]
-                    .compactMap { $0 }.joined(separator: ", "))
+                [
+                    item.releaseInfo ?? item.typeLabel, watched ? "Watched" : nil,
+                    downloaded ? "Downloaded" : nil,
+                ]
+                .compactMap { $0 }.joined(separator: ", "))
     }
 }
 
 struct WatchedBadge: View {
+    var body: some View { MediaStatusBadge(systemImage: "checkmark") }
+}
+
+struct DownloadedBadge: View {
+    var body: some View { MediaStatusBadge(systemImage: "arrow.down") }
+}
+
+private struct MediaStatusBadge: View {
+    let systemImage: String
     var body: some View {
-        Image(systemName: "checkmark").font(.system(size: 12, weight: .bold))
+        Image(systemName: systemImage).font(.system(size: 12, weight: .semibold))
             .foregroundStyle(.white).frame(width: 28, height: 28)
-            .background(.black.opacity(0.25), in: Circle())
-            .glassEffect(.regular, in: .circle)
+            .background(.ultraThinMaterial, in: Circle())
+            .environment(\.colorScheme, .dark)
             .allowsHitTesting(false).accessibilityHidden(true)
     }
 }

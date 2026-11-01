@@ -8,6 +8,7 @@ case "${1:---check}" in
 esac
 # Visit shared source once. Vendor packages and downloaded frameworks retain their upstream formatting.
 swift format "${task_action[@]}" --recursive --parallel \
-    Vesper Core/Sources Core/Tests Tests \
+    Vesper Core/Sources Core/Tests Tests Packages/UsenetEngine \
+    Packages/DownloadEngine/Sources Packages/DownloadEngine/Tests Packages/PAR2Kit/Sources Packages/PAR2Kit/Tests \
     Package.swift Core/Package.swift \
     Scripts/GenerateXcodeProject.swift

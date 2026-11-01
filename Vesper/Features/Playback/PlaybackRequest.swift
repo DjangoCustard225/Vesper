@@ -8,6 +8,7 @@ struct PlaybackRequest: Identifiable {
     let url: URL
     let title: String
     let subtitle: String?
+    var artworkURL: URL? = nil
     var isLive = false
     var resumeSeconds: Double = 0
     var onProgress: (@MainActor (PlaybackProgressUpdate) -> Void)? = nil

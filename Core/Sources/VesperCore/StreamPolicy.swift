@@ -20,6 +20,8 @@ public enum StreamPolicy {
             let url: String?
             let external: String?
             let youtube: String?
+            let nzb: String?
+            let include: String?
             let hash: String?
             let file: Int?
             let request: [String: String]
@@ -27,7 +29,9 @@ public enum StreamPolicy {
         }
         let identity = Identity(
             url: source.url, external: source.externalUrl, youtube: source.ytId,
-            hash: source.infoHash?.lowercased(), file: source.infoHash == nil ? nil : source.fileIdx ?? -1,
+            nzb: source.nzbUrl, include: source.fileMustInclude,
+            hash: source.infoHash?.lowercased(),
+            file: source.infoHash == nil && source.nzbUrl == nil ? nil : source.fileIdx ?? -1,
             request: source.behaviorHints?.proxyHeaders?.request ?? [:],
             response: source.behaviorHints?.proxyHeaders?.response ?? [:])
         let encoder = JSONEncoder()
@@ -47,7 +51,9 @@ public enum StreamPolicy {
 
     public static func needsRefresh(_ source: StreamSource, fetchedAt: Date, now: Date = Date()) -> Bool {
         if now.timeIntervalSince(fetchedAt) >= 90 { return true }
-        guard let raw = source.url ?? source.externalUrl, let components = URLComponents(string: raw) else {
+        guard let raw = source.url ?? source.externalUrl ?? source.nzbUrl,
+            let components = URLComponents(string: raw)
+        else {
             return false
         }
         for item in components.queryItems ?? [] where ["exp", "expires"].contains(item.name.lowercased()) {
@@ -81,10 +87,14 @@ public enum StreamPolicy {
     public static func refreshedMatch(for old: StreamSource, in sources: [StreamSource]) -> StreamSource? {
         let oldIdentity = identity(old)
         if let exact = sources.first(where: { identity($0) == oldIdentity }) { return exact }
-        guard let oldURL = old.url ?? old.externalUrl, let key = stableURL(oldURL) else { return nil }
+        guard let oldURL = old.url ?? old.externalUrl ?? old.nzbUrl, let key = stableURL(oldURL) else {
+            return nil
+        }
         let matches = sources.filter { candidate in
-            guard let raw = candidate.url ?? candidate.externalUrl, stableURL(raw) == key,
-                (candidate.url != nil) == (old.url != nil), candidate.name == old.name,
+            guard let raw = candidate.url ?? candidate.externalUrl ?? candidate.nzbUrl, stableURL(raw) == key,
+                (candidate.url != nil) == (old.url != nil), (candidate.nzbUrl != nil) == (old.nzbUrl != nil),
+                candidate.fileIdx == old.fileIdx, candidate.fileMustInclude == old.fileMustInclude,
+                candidate.name == old.name,
                 candidate.behaviorHints?.filename == old.behaviorHints?.filename,
                 candidate.behaviorHints?.videoHash == old.behaviorHints?.videoHash,
                 candidate.behaviorHints?.videoSize == old.behaviorHints?.videoSize
@@ -95,7 +105,7 @@ public enum StreamPolicy {
         return matches.count == 1 ? matches.first : nil
     }
 
-    private static func stableURL(_ raw: String) -> String? {
+    public static func stableURL(_ raw: String) -> String? {
         guard let url = try? AddonURL.http(raw),
             var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
             ["https", "http"].contains(components.scheme ?? "")

@@ -50,6 +50,8 @@ struct BuiltInPlayerView: View {
         _controller = State(
             initialValue: AetherPlaybackController(
                 url: request.url, resumeSeconds: request.resumeSeconds, isLive: request.isLive,
+                mediaInfo: PlaybackMediaInfo(
+                    title: request.title, subtitle: request.subtitle, artworkURL: request.artworkURL),
                 onProgress: request.onProgress, onScrobble: request.onScrobble,
                 restorePresentation: restorePresentation))
     }

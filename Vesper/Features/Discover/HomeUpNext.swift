@@ -5,6 +5,7 @@ struct HomeUpNext: View {
     @Environment(AppStore.self) private var store
     @State private var feed = UpNextFeedController()
     @State private var selection: Selection?
+    @State private var router = DownloadPlaybackRouter()
     private struct Request: Equatable {
         let seeds: [UpNext.Seed]
         let metadata: String
@@ -26,7 +27,11 @@ struct HomeUpNext: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Up Next").font(.title2.bold()).padding(.horizontal, 20)
                     UpNextShelf(items: feed.items) { item in
-                        selection = Selection(media: item.media, episode: item.episode)
+                        router.route(
+                            media: item.media, video: VideoSelection(episode: item.episode), store: store
+                        ) {
+                            selection = Selection(media: item.media, episode: item.episode)
+                        }
                     }
                 }
             }
@@ -46,6 +51,7 @@ struct HomeUpNext: View {
             }
         }
         .onDisappear { feed.cancel() }
+        .downloadedPlayback(router)
         .sheet(item: $selection) { item in
             StreamPickerView(media: item.media, video: VideoSelection(episode: item.episode))
                 .presentationDragIndicator(.visible)

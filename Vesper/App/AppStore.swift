@@ -4,6 +4,7 @@ import VesperCore
 @MainActor
 @Observable
 final class AppStore {
+    let downloads = DownloadManager.shared
     let client: AddonClient
     @ObservationIgnored private let addonCache = ResponseCache(
         directory: AppStore.cacheDirectory.appendingPathComponent("Addons"))
@@ -11,6 +12,8 @@ final class AppStore {
         directory: AppStore.cacheDirectory.appendingPathComponent("TMDB"))
     @ObservationIgnored private let tvdbCache = ResponseCache(
         directory: AppStore.cacheDirectory.appendingPathComponent("TVDB"))
+    @ObservationIgnored private let detailPosters = DetailPosterValidator(
+        cache: ResponseCache(directory: AppStore.cacheDirectory.appendingPathComponent("DetailPosters")))
     private(set) var addonRevision = UUID()
 
     private(set) var addons: [InstalledAddon] {
@@ -25,6 +28,9 @@ final class AppStore {
     var feeds: [CatalogFeed] { home.feeds }
 
     var tmdbFeeds: [TMDBFeed] { tmdbCredential == nil ? [] : home.tmdbFeeds }
+    private(set) var catalogPreferences = CatalogPreferences()
+    private(set) var homeCatalogRevision = UUID()
+    @ObservationIgnored private var catalogsWritable = true
     private(set) var heroCatalogID: String
     private(set) var availablePlayers: [VideoPlayer]
 
@@ -49,6 +55,33 @@ final class AppStore {
     }
 
     var isLoading: Bool { home.isLoading }
+    private var catalogLayoutRevision = UUID()
+    @ObservationIgnored private var cachedCatalogPresentation:
+        (
+            key: CatalogPresentationKey, value: HomeCatalogPresentation
+        )?
+
+    private struct CatalogPresentationKey: Equatable {
+        let layout: UUID
+        let context: ContentContext
+        let feeds: UUID
+        let hero: String
+    }
+
+    var catalogPresentation: HomeCatalogPresentation {
+        let key = CatalogPresentationKey(
+            layout: catalogLayoutRevision, context: contentContext,
+            feeds: home.presentationRevision, hero: heroCatalogID)
+        if let cachedCatalogPresentation, cachedCatalogPresentation.key == key {
+            return cachedCatalogPresentation.value
+        }
+        let value = HomeCatalogPresentation(
+            addons: addons, tmdbConfigured: tmdbCredential != nil, preferences: catalogPreferences,
+            feeds: home.feeds, tmdbFeeds: home.tmdbFeeds, settledCatalogIDs: home.settledCatalogIDs,
+            isLoading: home.isLoading, heroID: heroCatalogID)
+        cachedCatalogPresentation = (key, value)
+        return value
+    }
     private(set) var isClearingCache = false
     private(set) var library = LibraryState()
     private let history = WatchProgressController(repository: WatchProgressStorage.repository)
@@ -96,6 +129,12 @@ final class AppStore {
             "VesperMetadata")
     }
 
+    private static func removeRetiredFanartCache() throws {
+        let directory = cacheDirectory.appendingPathComponent("Fanart")
+        guard FileManager.default.fileExists(atPath: directory.path) else { return }
+        try FileManager.default.removeItem(at: directory)
+    }
+
     // MARK: - Initialization
 
     init() {
@@ -128,9 +167,20 @@ final class AppStore {
             tvdbCredentials = nil
             localStorageError = error.localizedDescription
         }
+        do { try SecureStorage.delete(.retiredFanartCredentials) } catch {
+            localStorageError = error.localizedDescription
+        }
+        do { try Self.removeRetiredFanartCache() } catch {
+            localStorageError = "A retired artwork cache couldn’t be removed."
+        }
         do { heroCatalogID = try SecureStorage.load(.heroCatalog) ?? HeroCatalogSelection.automaticID } catch
         {
             heroCatalogID = HeroCatalogSelection.automaticID
+            localStorageError = error.localizedDescription
+        }
+        do { catalogPreferences = try SecureStorage.load(.catalogPreferences) ?? CatalogPreferences() } catch
+        {
+            catalogsWritable = false
             localStorageError = error.localizedDescription
         }
         if saved.count != addons.count {
@@ -151,6 +201,27 @@ final class AppStore {
             localStorageError = "Your saved library couldn’t be read. Its file has been preserved."
         }
 
+        downloads.resolveSource = { [weak self] record in
+            guard let self else { throw DownloadFailure.response }
+            let candidates: [StreamSource]
+            if let id = record.providerID {
+                guard let provider = self.enabledAddons.first(where: { $0.id == id }) else {
+                    throw DownloadFailure.response
+                }
+                candidates = try await self.client.streams(
+                    provider, type: record.media.type, videoID: record.videoID)
+            } else {
+                candidates = await self.streamOptions(
+                    type: record.media.type, videoID: record.videoID, embedded: nil
+                ).options.map(\.source)
+                if candidates.isEmpty { return record.source }
+            }
+            guard let fresh = StreamPolicy.refreshedMatch(for: record.source, in: candidates) else {
+                throw DownloadFailure.response
+            }
+            return fresh
+        }
+        downloads.start()
     }
     // MARK: - Preferences and hero selection
 
@@ -162,38 +233,53 @@ final class AppStore {
         if available != preferredPlayer { preferredPlayer = available }
     }
 
-    var heroCatalogs: [HeroCatalog] {
-        var catalogs =
-            tmdbCredential == nil
-            ? []
-            : TMDBCatalog.allCases.map { catalog in
-                HeroCatalog(
-                    id: "tmdb:" + catalog.id, title: "TMDB · " + catalog.title,
-                    items: tmdbFeeds.first { $0.catalog == catalog }?.items ?? [])
-            }
-        for addon in enabledAddons {
-            for catalog in addon.manifest.catalogs where catalog.canRequest(with: catalog.defaultExtras) {
-                let feedID = addon.id + ":" + catalog.type + ":" + catalog.id
-                catalogs.append(
-                    HeroCatalog(
-                        id: "addon:" + feedID,
-                        title: addon.manifest.name + " · " + catalog.title,
-                        items: feeds.first { $0.id == feedID }?.items ?? []))
-            }
-        }
-        return catalogs
-    }
-
-    var heroItems: [MediaItem] {
-        HeroCatalogSelection.items(preferredID: heroCatalogID, catalogs: heroCatalogs)
-    }
+    var heroCatalogs: [HeroCatalog] { catalogPresentation.heroCatalogs }
+    var heroItems: [MediaItem] { catalogPresentation.heroItems }
 
     func setHeroCatalog(_ id: String) {
+        let previous = catalogPreferences.requests(availableCatalogs, heroID: heroCatalogID)
         do {
             try SecureStorage.save(id, for: .heroCatalog)
             heroCatalogID = id
+            if previous != catalogPreferences.requests(availableCatalogs, heroID: id) {
+                homeCatalogRevision = UUID()
+            }
+        } catch { localStorageError = error.localizedDescription }
+    }
+
+    @discardableResult
+    func saveCatalogPreferences(_ proposed: CatalogPreferences) -> Bool {
+        guard catalogsWritable else {
+            localStorageError = StorageError.unreadable.localizedDescription
+            return false
+        }
+        var proposed = proposed
+        proposed.groups = proposed.groups.map {
+            CombinedCatalog(
+                id: $0.id, name: $0.name.trimmingCharacters(in: .whitespacesAndNewlines), members: $0.members)
+        }
+        for (id, var customization) in proposed.customizations {
+            customization.name = customization.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if customization.name?.isEmpty == true { customization.name = nil }
+            customization.filters = customization.filters.filter { !$0.value.isEmpty }
+            proposed.customizations[id] = customization == CatalogCustomization() ? nil : customization
+        }
+        if proposed.order.isEmpty, (!proposed.customizations.isEmpty || !proposed.groups.isEmpty) {
+            proposed.order = catalogs.map(\.id)
+        }
+        guard proposed != catalogPreferences else { return true }
+        do {
+            let previous = catalogPreferences.requests(availableCatalogs, heroID: heroCatalogID)
+            try SecureStorage.save(proposed, for: .catalogPreferences)
+            catalogPreferences = proposed
+            catalogLayoutRevision = UUID()
+            if previous != proposed.requests(availableCatalogs, heroID: heroCatalogID) {
+                homeCatalogRevision = UUID()
+            }
+            return true
         } catch {
             localStorageError = error.localizedDescription
+            return false
         }
     }
 
@@ -338,6 +424,8 @@ final class AppStore {
         do { try await client.clearCache() } catch { failed = true }
         do { try await previous.clearCache() } catch { failed = true }
         do { try await previousTVDB.clearCache() } catch { failed = true }
+        do { try Self.removeRetiredFanartCache() } catch { failed = true }
+        do { try await detailPosters.clearCache() } catch { failed = true }
         do { try await introClient.clearCache() } catch { failed = true }
         await ArtworkPipeline.shared.clearCache()
         cacheVersions = [:]
@@ -427,6 +515,29 @@ final class AppStore {
         try Task.checkCancellation()
         guard !isClearingCache, revision == tmdbRevision else { throw CancellationError() }
         return result
+    }
+
+    func detailArtwork(for item: MediaItem) async throws -> DetailArtwork {
+        guard downloads.networkAvailable else { return downloads.offlineDetailArtwork(for: item) }
+        guard hasMetadata(for: item), !isClearingCache else { return DetailArtwork() }
+        let revision = metadataConfigurationRevision
+        let details = try await enrichedMetadata(for: item)
+        try Task.checkCancellation()
+        guard revision == metadataConfigurationRevision, !isClearingCache else { throw CancellationError() }
+        var portrait = details?.textlessPosterURL
+        if let candidate = portrait {
+            do {
+                let textless = try await detailPosters.isTextless(candidate)
+                if !textless { portrait = nil }
+            } catch is CancellationError { throw CancellationError() } catch { portrait = nil }
+        }
+        try Task.checkCancellation()
+        guard revision == metadataConfigurationRevision, !isClearingCache else { throw CancellationError() }
+        let artwork = DetailArtwork(
+            textlessPosterURL: portrait,
+            backdropURL: details?.backdropURL)
+        downloads.rememberDetailArtwork(artwork, for: item)
+        return artwork
     }
 
     func enrichedMetadata(for item: MediaItem) async throws -> MetadataEnrichment? {
@@ -519,12 +630,12 @@ final class AppStore {
 
     // MARK: - Home and source discovery
 
-    func refresh() async {
-        await home.load(addons: enabledAddons, includeTMDB: tmdbCredential != nil) { catalog in
-            switch catalog {
-            case .addon(let feed): addonSource(feed)
-            case .tmdb(let catalog): tmdbSource(catalog)
-            }
+    func refresh(preservingUnchanged: Bool = false) async {
+        await home.load(
+            catalogs: catalogPreferences.requested(availableCatalogs, heroID: heroCatalogID),
+            preservingUnchanged: preservingUnchanged
+        ) { catalog in
+            catalogSource(catalog)
         }
     }
 

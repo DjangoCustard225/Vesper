@@ -29,7 +29,10 @@ import Foundation
     }
 }
 
+@MainActor final class NowPlayingDouble { func update() {} }
+
 @MainActor final class ControllerProbe {
+    var nowPlaying: NowPlayingDouble?
     var engine: EngineDouble? = EngineDouble()
     var isPlaying = false
     var stopped = false
@@ -44,7 +47,7 @@ import Foundation
     var isBoosting = false
     var wantsPlayback = true
     var ownsAudioSession = false
-    var previousIdleTimer = false
+    let idleTimerID = UUID()
     var speed: Float = 1
     var seekTask: Task<Void, Never>?
     var timeline = PlaybackTimeline(elapsed: 120, duration: 1000, isSeekable: true)

@@ -26,5 +26,5 @@ task_ipa="$task_staging/$task_scheme.ipa"
 (cd "$task_staging" && /usr/bin/zip -qry0 "$task_ipa" Payload)
 "$task_python" -B Scripts/OptimizeIPA.py "$task_ipa"
 "$task_python" -B Scripts/VerifyIPA.py "$task_ipa" --native-icon
-mv "$task_ipa" "xtool/$task_scheme.ipa"
-mv "$task_staging/$task_scheme.sha256" "xtool/$task_scheme.sha256"
+mv "$task_ipa" "xtool/Vesper.ipa"
+mv "$task_staging/$task_scheme.sha256" "xtool/Vesper.sha256"

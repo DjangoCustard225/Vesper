@@ -6,48 +6,7 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section {
-                NavigationLink {
-                    AddonsView()
-                } label: {
-                    Label("Add-ons", systemImage: "puzzlepiece.extension")
-                }
-                NavigationLink {
-                    TMDBSettingsView()
-                } label: {
-                    HStack {
-                        Label("TMDB", systemImage: "film")
-                        Spacer()
-                        Text(store.tmdbCredential == nil ? "Not connected" : "Connected").foregroundStyle(
-                            .secondary)
-                    }
-                }
-                NavigationLink {
-                    TVDBSettingsView()
-                } label: {
-                    HStack {
-                        Label("TVDB", systemImage: "tv")
-                        Spacer()
-                        Text(store.tvdbCredentials == nil ? "Not connected" : "Connected")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                NavigationLink {
-                    TraktSettingsView()
-                } label: {
-                    HStack {
-                        Label("Trakt", systemImage: "checkmark.circle")
-                        Spacer()
-                        Text(
-                            store.trakt.needsReconnect
-                                ? "Reconnect required"
-                                : (store.trakt.isConnected ? "Connected" : "Not connected")
-                        )
-                        .foregroundStyle(.secondary)
-                    }
-                }
-            }
-            Section {
+            Section("Preferences") {
                 NavigationLink {
                     HomeSettingsView()
                 } label: {
@@ -57,6 +16,46 @@ struct SettingsView: View {
                     VideoPlayerSettingsView()
                 } label: {
                     Label("Video Player", systemImage: "play.rectangle")
+                }
+                NavigationLink {
+                    DownloadsSettingsView()
+                } label: {
+                    Label("Downloads", systemImage: "arrow.down.circle")
+                }
+            }
+            Section("Connections") {
+                NavigationLink {
+                    UsenetSettingsView()
+                } label: {
+                    Label("Usenet", systemImage: "network")
+                }
+                NavigationLink {
+                    AddonsView()
+                } label: {
+                    Label("Add-ons", systemImage: "puzzlepiece.extension")
+                }
+                NavigationLink {
+                    TMDBSettingsView()
+                } label: {
+                    SettingsConnectionLabel(
+                        title: "TMDB", systemImage: "film",
+                        status: store.tmdbCredential == nil ? "Not connected" : "Connected")
+                }
+                NavigationLink {
+                    TVDBSettingsView()
+                } label: {
+                    SettingsConnectionLabel(
+                        title: "TVDB", systemImage: "tv",
+                        status: store.tvdbCredentials == nil ? "Not connected" : "Connected")
+                }
+                NavigationLink {
+                    TraktSettingsView()
+                } label: {
+                    SettingsConnectionLabel(
+                        title: "Trakt", systemImage: "checkmark.circle",
+                        status: store.trakt.needsReconnect
+                            ? "Reconnect required"
+                            : (store.trakt.isConnected ? "Connected" : "Not connected"))
                 }
             }
             Section {
@@ -72,5 +71,19 @@ struct SettingsView: View {
                 }
             }
         }.appScrollEdges().navigationTitle("Settings").toolbar(.visible, for: .navigationBar)
+    }
+}
+
+private struct SettingsConnectionLabel: View {
+    let title: String
+    let systemImage: String
+    let status: String
+
+    var body: some View {
+        LabeledContent {
+            Text(status).foregroundStyle(.secondary)
+        } label: {
+            Label(title, systemImage: systemImage)
+        }
     }
 }

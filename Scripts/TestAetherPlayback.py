@@ -20,7 +20,8 @@ for name in ["togglePlayback", "pause", "seek", "setSpeed", "beginBoost", "endBo
 tests = (root / "Tests/AetherPlaybackControlTests.swift").read_text().replace("// INSERT_ACTUAL_METHODS", "\n".join(methods))
 with tempfile.TemporaryDirectory(prefix="vesper-aether-controls-") as directory:
     source, binary = Path(directory) / "Regression.swift", Path(directory) / "Regression"
-    source.write_text(action + "\n" + reporter + "\n" + tests)
+    awake = (root / "Vesper/App/ScreenAwake.swift").read_text().replace("import UIKit", "import Foundation")
+    source.write_text(action + "\n" + reporter + "\n" + tests + "\n" + awake)
     subprocess.run(["swiftc", "-swift-version", "5", "-parse-as-library", str(source),
                     str(playback / "PlaybackState.swift"), str(root / "Core/Sources/VesperCore/PlaybackTimeline.swift"), str(root / "Core/Sources/VesperCore/PlaybackProgressReporter.swift"),
                     "-o", str(binary)], check=True)
