@@ -26,6 +26,23 @@ final class DownloadTests: XCTestCase {
         return root
     }
 
+    func testUsenetStorageReservesOnlyRemainingDownloadBytes() {
+        let gib: Int64 = 1024 * 1024 * 1024
+        let remaining = DownloadPolicy.usenetBytesRemaining(total: 12 * gib, received: 0)
+        XCTAssertTrue(DownloadPolicy.hasSpace(available: 20 * gib, remaining: [remaining]))
+        XCTAssertFalse(DownloadPolicy.hasSpace(available: 10 * gib, remaining: [remaining]))
+        XCTAssertEqual(DownloadPolicy.usenetBytesRemaining(total: 12 * gib, received: 5 * gib), 7 * gib)
+        XCTAssertEqual(DownloadPolicy.usenetBytesRemaining(total: 12 * gib, received: 20 * gib), 0)
+        XCTAssertEqual(DownloadPolicy.usenetBytesRemaining(total: 12 * gib, received: -1), 12 * gib)
+        let full = NSError(domain: NSPOSIXErrorDomain, code: Int(POSIXError.ENOSPC.rawValue))
+        let wrapped = NSError(
+            domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError,
+            userInfo: [NSUnderlyingErrorKey: full])
+        XCTAssertTrue(DownloadPolicy.isOutOfSpace(full))
+        XCTAssertTrue(DownloadPolicy.isOutOfSpace(wrapped))
+        XCTAssertFalse(DownloadPolicy.isOutOfSpace(NSError(domain: NSPOSIXErrorDomain, code: 1)))
+    }
+
     func testLegacyFanartDetailSnapshotIsIgnoredWhenDecodingDownloads() throws {
         var object = try XCTUnwrap(
             JSONSerialization.jsonObject(with: JSONEncoder().encode(record())) as? [String: Any])

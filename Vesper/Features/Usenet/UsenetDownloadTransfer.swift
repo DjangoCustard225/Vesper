@@ -84,7 +84,15 @@ enum UsenetDownloadError: LocalizedError {
         guard let provider = providers.first else { throw UsenetError.providerRequired }
         let options = UsenetDownloadOptions.shared
         let cap = min(1_000_000, max(0, options.bandwidthKBps)) * 1024
-        let files = manifest.files.map { file in
+        let selectedFiles: [NZBFile]
+        if let episode = record.episode, let season = episode.season, let number = episode.episode {
+            let target = UsenetEpisodeTarget(
+                season: season, episode: number, airDate: episode.released.map { String($0.prefix(10)) })
+            selectedFiles = manifest.filesForEpisode(target)
+        } else {
+            selectedFiles = manifest.files
+        }
+        let files = selectedFiles.map { file in
             let id = "f\(file.id)"
             return FileSpec(
                 id: id, filename: state.filenames[id] ?? file.name, groups: [],
@@ -152,8 +160,12 @@ enum UsenetDownloadError: LocalizedError {
             postprocess.cancel()
         }
         try Task.checkCancellation()
-        try await stage(DownloadWorkProgress(.saving))
         let selected = try select(output, root: root, record: record, source: source)
+        let available = await DownloadStorage(root: DownloadFiles.root).availableBytes()
+        guard DownloadPolicy.hasSpace(available: available, remaining: [DownloadFiles.size(selected)]) else {
+            throw DownloadFailure.storage
+        }
+        try await stage(DownloadWorkProgress(.saving))
         let staged = DownloadFiles.stagingURL(key)
         try FileManager.default.createDirectory(at: DownloadFiles.incoming, withIntermediateDirectories: true)
         try? FileManager.default.removeItem(at: staged)
@@ -256,6 +268,7 @@ enum UsenetDownloadError: LocalizedError {
                 {
                 case .extracted(let count) where count > 0: unlocked = true
                 case .passwordRequired: continue
+                case .insufficientStorage: throw DownloadFailure.storage
                 case .failed: continue
                 default: continue
                 }
@@ -301,6 +314,7 @@ enum UsenetDownloadError: LocalizedError {
         } catch {
             try? input.close(); try? output.close()
             try? FileManager.default.removeItem(at: destination)
+            if DownloadPolicy.isOutOfSpace(error) { throw DownloadFailure.storage }
             throw error
         }
     }

@@ -21,7 +21,13 @@
 import Foundation
 
 public actor NZBDownloadEngine {
-    public init() {}
+    private let makeConnection: @Sendable (ServerConfig, RateLimiter?) -> any DownloadConnection
+    public init() {
+        makeConnection = { NNTPConnection(config: $0, rateLimiter: $1) }
+    }
+    init(makeConnection: @escaping @Sendable (ServerConfig, RateLimiter?) -> any DownloadConnection) {
+        self.makeConnection = makeConnection
+    }
 
     private var currentTask: Task<Void, Never>?
 
@@ -37,6 +43,7 @@ public actor NZBDownloadEngine {
     private var bytesAtLastTick = 0
     private var smoothedBytesPerSecond = 0.0
     private var activeConnections = 0
+    private var authenticated = false
     private var completed: Set<String> = []
     private var missing: Set<String> = []
     private var transientlyFailed: Set<String> = []
@@ -188,15 +195,38 @@ public actor NZBDownloadEngine {
             }
         }
 
+        // Authenticate one connection before expanding the pool. A rejected extra socket
+        // must not invalidate credentials already accepted by the same server.
+        var first: (any DownloadConnection)?
+        if remaining > 0 {
+            let candidate = makeConnection(server, rateLimiter)
+            do {
+                try await candidate.open()
+                first = candidate
+                connectionOpened()
+            } catch let error as NNTPError {
+                if case .authenticationFailed(let code) = error { recordAuthFailure(code: code) }
+                if error == .badGreeting(502) { recordAuthFailure(code: 502) }
+                await candidate.close()
+            } catch { await candidate.close() }
+        }
+        let initialConnection = first
         await withTaskGroup(of: Void.self) { group in
-            for _ in 0..<workerCount {
+            for index in 0..<workerCount {
                 group.addTask { [weak self] in
                     await self?.runWorker(
                         server: server, scheduler: scheduler, assembler: assembler, rateLimiter: rateLimiter,
-                        fallbacks: fallbacks)
+                        fallbacks: fallbacks, initialConnection: index == 0 ? initialConnection : nil)
                 }
             }
             await group.waitForAll()
+        }
+        // A worker rejected during login can return its item after the last healthy
+        // worker has drained the queue. Reclaim that work with a single connection.
+        if !Task.isCancelled, authFailureReason == nil, await scheduler.remainingCount > 0 {
+            await runWorker(
+                server: server, scheduler: scheduler, assembler: assembler,
+                rateLimiter: rateLimiter, fallbacks: fallbacks, allowsPoolReduction: false)
         }
         ticker.cancel()
 
@@ -236,9 +266,10 @@ public actor NZBDownloadEngine {
     // only for shared accounting — avoids cross-isolation captures of the mutable connection.
     private nonisolated func runWorker(
         server: ServerConfig, scheduler: SegmentScheduler, assembler: FileAssembler,
-        rateLimiter: RateLimiter?, fallbacks: [FallbackServer]
+        rateLimiter: RateLimiter?, fallbacks: [FallbackServer],
+        initialConnection: (any DownloadConnection)? = nil, allowsPoolReduction: Bool = true
     ) async {
-        var connection: NNTPConnection?
+        var connection = initialConnection
         let maxAttempts = Self.maxAttemptsPerSegment
 
         workLoop: while !Task.isCancelled {
@@ -250,12 +281,18 @@ public actor NZBDownloadEngine {
                 attempts += 1
 
                 if connection == nil {
-                    let candidate = NNTPConnection(config: server, rateLimiter: rateLimiter)
+                    let candidate = makeConnection(server, rateLimiter)
                     do {
                         try await candidate.open()
                         connection = candidate
                         await connectionOpened()
                     } catch let error as NNTPError {
+                        await candidate.close()
+                        if allowsPoolReduction,
+                            await retireRejectedConnection(error, item: item, scheduler: scheduler)
+                        {
+                            return
+                        }
                         if case .authenticationFailed(let code) = error {
                             await recordAuthFailure(code: code); return
                         }
@@ -396,10 +433,22 @@ public actor NZBDownloadEngine {
         transientlyFailed.insert(item.segment.id)
     }
 
+    private func retireRejectedConnection(
+        _ error: NNTPError, item: SegmentScheduler.WorkItem, scheduler: SegmentScheduler
+    ) async -> Bool {
+        guard authenticated,
+            error == .authenticationFailed(502) || error == .badGreeting(502)
+        else { return false }
+        await giveUpTransiently(item, scheduler: scheduler)
+        return true
+    }
+
     private func recordAuthFailure(code: Int) {
         guard authFailureReason == nil else { return }
         authFailureReason =
-            "The server rejected the login (code \(code)). Check the username and password in Settings."
+            code == 502
+            ? "The provider refused access (502). Check your connection limit, active sessions and account access, then retry."
+            : "The server rejected the login (code \(code)). Check the username and password in Settings."
         currentTask?.cancel()  // stop the whole job — a per-segment retry can't fix a login error
     }
 
@@ -423,7 +472,7 @@ public actor NZBDownloadEngine {
         }
     }
 
-    private func connectionOpened() { activeConnections += 1 }
+    private func connectionOpened() { activeConnections += 1; authenticated = true }
     private func connectionClosed() { activeConnections = max(0, activeConnections - 1) }
 
     private func emitProgressTick() {
@@ -454,7 +503,8 @@ public actor NZBDownloadEngine {
     private func resetState() {
         emit = nil; jobID = ""; workingDir = nil; assembler = nil; checkpointStore = nil
         filesByID = [:]
-        downloadedBytes = 0; bytesAtLastTick = 0; smoothedBytesPerSecond = 0; activeConnections = 0
+        downloadedBytes = 0; bytesAtLastTick = 0; smoothedBytesPerSecond = 0; activeConnections = 0;
+        authenticated = false
         completed = []; missing = []; transientlyFailed = []; authFailureReason = nil
         perFileTotal = [:]; perFileResolved = [:]; perFileMissing = [:]; finalizedFiles = []
         finalizedNames = [:]; storageFailureReason = nil; decodedSizes = [:]
@@ -465,7 +515,7 @@ public actor NZBDownloadEngine {
     /// Race a body fetch against a stall timeout. Only the timeout path closes the connection (to
     /// unblock the suspended read); other errors are rethrown with the connection intact so a
     /// healthy "article unavailable" response doesn't needlessly tear down a reusable connection.
-    private nonisolated func fetchWithTimeout(_ conn: NNTPConnection, messageID: String) async throws
+    private nonisolated func fetchWithTimeout(_ conn: any DownloadConnection, messageID: String) async throws
         -> [Data]
     {
         let timeout = Self.fetchTimeout

@@ -552,7 +552,12 @@ import UsenetEngine
                 guard
                     DownloadPolicy.hasSpace(
                         available: await self.storage.availableBytes(),
-                        remaining: [max(0, total - record.receivedBytes), total, total])
+                        remaining: self.records.filter { $0.phase.isActive && $0.id != key.id }.map {
+                            DownloadPolicy.usenetBytesRemaining(
+                                total: $0.expectedBytes ?? 0, received: self.progress(for: $0).bytes)
+                        } + [
+                            DownloadPolicy.usenetBytesRemaining(total: total, received: record.receivedBytes)
+                        ])
                 else { throw DownloadFailure.storage }
                 guard
                     await self.change(

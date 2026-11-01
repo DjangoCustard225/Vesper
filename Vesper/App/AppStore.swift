@@ -517,13 +517,17 @@ final class AppStore {
         return result
     }
 
-    func detailArtwork(for item: MediaItem) async throws -> DetailArtwork {
+    func detailArtwork(
+        for item: MediaItem, onBackdrop: @MainActor (DetailArtwork) -> Void = { _ in }
+    ) async throws -> DetailArtwork {
         guard downloads.networkAvailable else { return downloads.offlineDetailArtwork(for: item) }
         guard hasMetadata(for: item), !isClearingCache else { return DetailArtwork() }
         let revision = metadataConfigurationRevision
         let details = try await enrichedMetadata(for: item)
         try Task.checkCancellation()
         guard revision == metadataConfigurationRevision, !isClearingCache else { throw CancellationError() }
+        let backdrop = details?.backdropURL
+        if let backdrop { onBackdrop(DetailArtwork(backdropURL: backdrop)) }
         var portrait = details?.textlessPosterURL
         if let candidate = portrait {
             do {

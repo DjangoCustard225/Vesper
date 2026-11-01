@@ -11,10 +11,16 @@
 //
 
 import Foundation
+
+protocol DownloadConnection: Sendable {
+    func open() async throws
+    func close() async
+    func fetchBody(messageID: String) async throws -> [Data]
+}
 #if canImport(Network)
 import Network
 
-actor NNTPConnection {
+actor NNTPConnection: DownloadConnection {
     private let config: ServerConfig
     private static let queue = DispatchQueue(
         label: "de.valentinlehmann.swiftnzb.nntp", attributes: .concurrent)
@@ -278,7 +284,7 @@ private final class ResumeOnce: @unchecked Sendable {
 }
 
 #else
-actor NNTPConnection {
+actor NNTPConnection: DownloadConnection {
     init(config: ServerConfig, rateLimiter: RateLimiter? = nil) {}
     func open() throws {
         throw NNTPError.connectionFailed("Network.framework is unavailable on this platform")

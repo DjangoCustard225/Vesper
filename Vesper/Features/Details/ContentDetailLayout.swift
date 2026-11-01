@@ -87,7 +87,11 @@ struct ContentDetailLayout<Actions: View, Content: View>: View {
             .toolbarBackground(.hidden, for: .navigationBar)
             .task(id: artworkContext) {
                 let request = artworkContext
-                let artwork = (try? await store.detailArtwork(for: media)) ?? DetailArtwork()
+                let artwork =
+                    (try? await store.detailArtwork(for: media) { backdrop in
+                        guard !Task.isCancelled, request == artworkContext else { return }
+                        resolvedArtwork = backdrop; resolvedContext = request
+                    }) ?? DetailArtwork()
                 guard !Task.isCancelled, request == artworkContext else { return }
                 resolvedArtwork = artwork; resolvedContext = request
             }

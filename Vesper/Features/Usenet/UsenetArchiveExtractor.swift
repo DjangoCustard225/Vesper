@@ -9,12 +9,14 @@
 
 import Foundation
 import Unrar
+import VesperCore
 
 enum UsenetArchiveExtractor {
     enum Outcome: Sendable, Equatable {
         case extracted(fileCount: Int)
         case noArchives
         case passwordRequired
+        case insufficientStorage
         case failed(String)
     }
 
@@ -48,7 +50,9 @@ enum UsenetArchiveExtractor {
                     try FileManager.default.createDirectory(
                         at: outURL.deletingLastPathComponent(), withIntermediateDirectories: true)
                     FileManager.default.createFile(atPath: outURL.path, contents: nil)
-                    guard let handle = try? FileHandle(forWritingTo: outURL) else {
+                    let handle: FileHandle
+                    do { handle = try FileHandle(forWritingTo: outURL) } catch {
+                        if DownloadPolicy.isOutOfSpace(error) { return .insufficientStorage }
                         return .failed("Couldn't write \(entry.fileName)")
                     }
                     // Surface a write failure (e.g. disk full) instead of silently producing a
@@ -70,10 +74,12 @@ enum UsenetArchiveExtractor {
                         }
                     } catch {
                         try? handle.close()
+                        if DownloadPolicy.isOutOfSpace(writeError ?? error) { return .insufficientStorage }
                         return .failed("Extraction failed: \(Self.reason(error, password: password))")
                     }
                     try? handle.close()
                     if let writeError {
+                        if DownloadPolicy.isOutOfSpace(writeError) { return .insufficientStorage }
                         return .failed("Couldn't write \(entry.fileName): \(writeError.localizedDescription)")
                     }
                     extractedCount += 1
@@ -83,6 +89,7 @@ enum UsenetArchiveExtractor {
                 // so this surfaces here rather than via `entry.encrypted`.
                 return .passwordRequired
             } catch {
+                if DownloadPolicy.isOutOfSpace(error) { return .insufficientStorage }
                 return .failed("Extraction failed: \(Self.reason(error, password: password))")
             }
         }

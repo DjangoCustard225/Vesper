@@ -187,8 +187,18 @@ struct DetailView: View {
     }
 
     private func load() async {
-        await store.downloads.ready()
+        let canRefreshEarly =
+            item.type == "series"
+            && (MediaIdentity.validIMDb(item.id) != nil
+                || (item.id.hasPrefix("tmdb:") && MediaIdentity.tmdbID(item) != nil)
+                || (item.id.hasPrefix("trakt:") && Int(item.id.dropFirst(6)).map { $0 > 0 } == true))
+        async let downloadsReady: Void = store.downloads.ready()
+        async let watchedRefresh: Void = {
+            if canRefreshEarly { await store.refreshTraktWatchedEpisodes(for: item) }
+        }()
         if startPlayback, !didRouteInitialDownload {
+            await downloadsReady
+            guard !Task.isCancelled else { return }
             let video = VideoSelection(
                 id: resumeRecord?.playbackID(for: item) ?? item.playbackID,
                 title: resumeRecord?.subtitle, embedded: nil)
@@ -205,10 +215,15 @@ struct DetailView: View {
             await model.load(metadata: { await store.metadata(for: $0) })
         }
         if !Task.isCancelled, media.type == "series" {
-            await store.refreshTraktWatchedEpisodes(for: media)
+            if canRefreshEarly {
+                await watchedRefresh
+            } else {
+                await store.refreshTraktWatchedEpisodes(for: media)
+            }
             guard !Task.isCancelled else { return }
             await prepareInitialEpisode()
         }
+        await downloadsReady
         guard !Task.isCancelled else { return }
         preparingEpisode = false
         startRequestedPlayback()

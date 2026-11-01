@@ -72,12 +72,17 @@ public actor DownloadStorage {
     }
     public func availableBytes() -> Int64 {
         #if os(iOS) || os(macOS)
-        return (try? root.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
-            .volumeAvailableCapacityForImportantUsage ?? 0
-        #else
+        if let values = try? root.resourceValues(forKeys: [
+            .volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey,
+        ]) {
+            if let capacity = values.volumeAvailableCapacityForImportantUsage, capacity >= 0 {
+                return capacity
+            }
+            if let capacity = values.volumeAvailableCapacity, capacity >= 0 { return Int64(capacity) }
+        }
+        #endif
         return ((try? fm.attributesOfFileSystem(forPath: root.path)[.systemFreeSize]) as? NSNumber)?
             .int64Value ?? 0
-        #endif
     }
     public func file(_ record: DownloadRecord) -> URL? {
         guard let name = record.fileName, DownloadPolicy.safeName(name) else { return nil }

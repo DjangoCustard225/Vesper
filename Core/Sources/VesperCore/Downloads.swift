@@ -143,6 +143,25 @@ public enum DownloadPolicy {
         return contentRange == nil && contentLength > 0 ? contentLength : nil
     }
 
+    public static func isOutOfSpace(_ error: Error) -> Bool {
+        var current: NSError? = error as NSError
+        for _ in 0..<5 {
+            guard let value = current else { break }
+            if value.domain == NSCocoaErrorDomain && value.code == NSFileWriteOutOfSpaceError { return true }
+            if value.domain == NSPOSIXErrorDomain && value.code == Int(POSIXError.ENOSPC.rawValue) {
+                return true
+            }
+            current = value.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return false
+    }
+
+    /// Reserve only data still to be received. Later phases check their own space needs.
+    public static func usenetBytesRemaining(total: Int64, received: Int64) -> Int64 {
+        let total = max(0, total)
+        return total - min(total, max(0, received))
+    }
+
     public static func hasSpace(available: Int64, remaining: [Int64]) -> Bool {
         var needed = storageReserve
         for bytes in remaining where bytes > 0 {

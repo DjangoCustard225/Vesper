@@ -5,9 +5,9 @@
 	<key>CFBundleDisplayName</key>
 	<string>Vesper</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.4.3</string>
+	<string>0.5</string>
 	<key>CFBundleVersion</key>
-	<string>43</string>
+	<string>50</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>UIBackgroundModes</key>
