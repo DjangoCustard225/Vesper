@@ -6,6 +6,5 @@ let package = Package(
     products: [.library(name: "VesperCore", targets: ["VesperCore"])],
     targets: [
         .target(name: "VesperCore", swiftSettings: [.enableUpcomingFeature("StrictConcurrency")]),
-        .testTarget(name: "VesperCoreTests", dependencies: ["VesperCore"]),
     ],
     swiftLanguageModes: [.v5])

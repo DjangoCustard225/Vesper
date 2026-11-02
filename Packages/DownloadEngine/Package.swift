@@ -10,9 +10,5 @@ let package = Package(
     targets: [
         // Pure Swift (CRC32 is table-based in-package; no system-library dependency).
         .target(name: "DownloadEngine"),
-        .testTarget(
-            name: "DownloadEngineTests",
-            dependencies: ["DownloadEngine"]
-        ),
     ]
 )

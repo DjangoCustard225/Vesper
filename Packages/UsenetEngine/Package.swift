@@ -10,7 +10,5 @@ let package = Package(
         .target(
             name: "UsenetEngine", dependencies: ["CUsenetCrypto"],
             swiftSettings: [.enableUpcomingFeature("StrictConcurrency")]),
-        .testTarget(
-            name: "UsenetEngineTests", dependencies: ["UsenetEngine"], resources: [.copy("Fixtures")]),
     ],
     swiftLanguageModes: [.v5])

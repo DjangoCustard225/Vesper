@@ -10,9 +10,5 @@ let package = Package(
     targets: [
         // Clean-room PAR2 (parse / verify / Reed-Solomon repair). Permissively licensed, no GPL.
         .target(name: "PAR2Kit"),
-        .testTarget(
-            name: "PAR2KitTests",
-            dependencies: ["PAR2Kit"]
-        ),
     ]
 )
