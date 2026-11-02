@@ -9,6 +9,7 @@ public struct WatchRecord: Codable, Identifiable, Sendable {
     public let watched: Bool
     public let updatedAt: Date
     public var importedFromTrakt: Bool? = nil
+    public var importedFromSimkl: Bool? = nil
     public var hiddenFromContinueWatching: Bool? = nil
 
     public var id: String { media.key + ":" + (videoID ?? "watched") }
@@ -169,7 +170,8 @@ public struct WatchProgress: Codable, Sendable {
                 artwork[alias] = record.media
             }
         }
-        let local = records.filter { $0.importedFromTrakt != true }
+        var local = records.filter { $0.importedFromTrakt != true || $0.importedFromSimkl == true }
+        for i in local.indices where local[i].importedFromSimkl == true { local[i].importedFromTrakt = nil }
         var localIndices: [String: Set<Int>] = [:]
         var pendingIndices: [String: Set<Int>] = [:]
         for (index, record) in local.enumerated() {
@@ -222,6 +224,8 @@ public struct WatchProgress: Codable, Sendable {
                 media: Self.compact(media), videoID: entry.videoID, subtitle: nil,
                 elapsed: 0, duration: 0, watched: true, updatedAt: entry.watchedAt)
             record.importedFromTrakt = true
+            record.importedFromSimkl =
+                candidates.contains { local[$0].importedFromSimkl == true && matches($0) } ? true : nil
             imported.append(record)
         }
         records = local.indices.filter { !removed.contains($0) }.map { local[$0] } + imported
@@ -240,6 +244,26 @@ public struct WatchProgress: Codable, Sendable {
         mergeTrakt(entries.filter { $0.media.isSameTitle(as: media) }, pending: pending)
         let existingIDs = Set(records.map(\.id))
         records.append(contentsOf: otherImports.filter { !existingIDs.contains($0.id) })
+        records.sort { $0.updatedAt > $1.updatedAt }
+        trim()
+    }
+
+    public mutating func mergeSimkl(_ entries: [TraktWatchedEntry], pending: [TraktHistoryChange]) {
+        let trakt = records.filter { $0.importedFromTrakt == true }
+        records.removeAll { $0.importedFromTrakt == true }
+        for i in records.indices {
+            records[i].importedFromTrakt = records[i].importedFromSimkl; records[i].importedFromSimkl = nil
+        }
+        mergeTrakt(entries, pending: pending)
+        for i in records.indices {
+            records[i].importedFromSimkl = records[i].importedFromTrakt
+            records[i].importedFromTrakt =
+                trakt.contains {
+                    $0.media.isSameTitle(as: records[i].media) && $0.episodeKey == records[i].episodeKey
+                } ? true : nil
+        }
+        let ids = Set(records.map(\.id))
+        records.append(contentsOf: trakt.filter { !ids.contains($0.id) })
         records.sort { $0.updatedAt > $1.updatedAt }
         trim()
     }

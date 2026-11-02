@@ -8,9 +8,10 @@ struct DownloadTitleSheet: View {
     @Environment(\.dismiss) private var dismiss
     let media: MediaItem
     var completedOnly = false
+    var initialSelectedID: UUID? = nil
     @Environment(\.dynamicTypeSize) private var dynamicType
     @State private var selectedID: UUID?
-    @State private var detent = PresentationDetent.large
+    @State private var detent = PresentationDetent.medium
     @State private var router = DownloadPlaybackRouter()
     @State private var removalTarget: DownloadRecord?
     @State private var confirmingRemoval = false
@@ -35,82 +36,77 @@ struct DownloadTitleSheet: View {
         }
     }
     private var featured: DownloadRecord? {
-        let id = DownloadTransferPresentation.preferredID(in: records, keeping: selectedID)
+        let id = DownloadTransferPresentation.preferredID(
+            in: records, keeping: selectedID ?? initialSelectedID)
         return records.first { $0.id == id }
     }
     var body: some View {
         NavigationStack {
-            GeometryReader { geometry in
-                List {
-                    if let record = featured {
-                        Section {
-                            featuredContent(record, artworkHeight: artworkHeight(in: geometry.size))
-                                .listRowBackground(Color.clear)
-                                .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 12, trailing: 0))
-                        }
-                        if records.count > 1 {
-                            Section("Downloads") {
-                                ForEach(records) { candidate in
-                                    Button {
-                                        selectedID = candidate.id
-                                    } label: {
-                                        HStack(spacing: 12) {
-                                            DownloadTransferSummary(
-                                                record: candidate,
-                                                title: candidate.subtitle ?? DownloadTransferPresentation(
-                                                    record: candidate
-                                                ).filename ?? "Download")
-                                            if candidate.id == record.id {
-                                                Image(systemName: "checkmark").font(.body.weight(.semibold))
-                                                    .foregroundStyle(.primary).accessibilityHidden(true)
-                                            }
-                                        }.padding(.vertical, 4).contentShape(Rectangle())
-                                    }.buttonStyle(.plain)
-                                        .accessibilityAddTraits(candidate.id == record.id ? .isSelected : [])
-                                }
+            List {
+                if let record = featured {
+                    Section {
+                        featuredContent(record)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 12, trailing: 0))
+                    }
+                    if records.count > 1 {
+                        Section("Downloads") {
+                            ForEach(records) { candidate in
+                                Button {
+                                    selectedID = candidate.id
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        DownloadTransferSummary(
+                                            record: candidate,
+                                            title: candidate.subtitle ?? DownloadTransferPresentation(
+                                                record: candidate
+                                            ).filename ?? "Download")
+                                        if candidate.id == record.id {
+                                            Image(systemName: "checkmark").font(.body.weight(.semibold))
+                                                .foregroundStyle(.primary).accessibilityHidden(true)
+                                        }
+                                    }.padding(.vertical, 4).contentShape(Rectangle())
+                                }.buttonStyle(.plain)
+                                    .accessibilityAddTraits(candidate.id == record.id ? .isSelected : [])
                             }
                         }
-                        Section {
-                            DisclosureGroup("Details") {
-                                if let filename = DownloadTransferPresentation(record: record).filename {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        Text("Source filename").font(.caption).foregroundStyle(.secondary)
-                                        Text(filename).font(.subheadline).textSelection(.enabled)
-                                    }.padding(.vertical, 4)
-                                }
-                                if downloads.progress(for: record).connections > 0 {
-                                    LabeledContent(
-                                        "Connections",
-                                        value: String(downloads.progress(for: record).connections))
-                                }
-                                if record.phase != .completed, let status = downloads.backgroundStatus {
-                                    Text(status).font(.footnote).foregroundStyle(.secondary)
-                                }
+                    }
+                    Section {
+                        DisclosureGroup("Details") {
+                            if let filename = DownloadTransferPresentation(record: record).filename {
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("Source filename").font(.caption).foregroundStyle(.secondary)
+                                    Text(filename).font(.subheadline).textSelection(.enabled)
+                                }.padding(.vertical, 4)
+                            }
+                            if downloads.progress(for: record).connections > 0 {
+                                LabeledContent(
+                                    "Connections",
+                                    value: String(downloads.progress(for: record).connections))
+                            }
+                            if record.phase != .completed, let status = downloads.backgroundStatus {
+                                Text(status).font(.footnote).foregroundStyle(.secondary)
                             }
                         }
                     }
                 }
-                .listStyle(.insetGrouped).appScrollEdges()
-                .scrollContentBackground(.hidden)
-                .frame(maxWidth: 680).frame(maxWidth: .infinity)
-                .overlay {
-                    if records.isEmpty {
-                        ContentUnavailableView("No downloads", systemImage: "arrow.down.circle")
-                    }
+            }
+            .listStyle(.insetGrouped).appScrollEdges()
+            .contentMargins(.top, 8, for: .scrollContent)
+            .scrollContentBackground(.hidden)
+            .frame(maxWidth: 680).frame(maxWidth: .infinity)
+            .overlay {
+                if records.isEmpty {
+                    ContentUnavailableView("No downloads", systemImage: "arrow.down.circle")
                 }
             }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Close", systemImage: "xmark") { dismiss() }.labelStyle(.iconOnly)
-                        .accessibilityLabel("Close downloads")
-                }
-            }
+            .toolbar(.hidden, for: .navigationBar)
         }
         .presentationDetents([.medium, .large], selection: $detent)
         .presentationDragIndicator(.visible)
         .onChange(of: records.map(\.id), initial: true) { _, _ in
-            selectedID = DownloadTransferPresentation.preferredID(in: records, keeping: selectedID)
+            selectedID = DownloadTransferPresentation.preferredID(
+                in: records, keeping: selectedID ?? initialSelectedID)
         }
         .downloadedPlayback(router, knownEpisodes: records.compactMap(\.episode))
         .sheet(item: $export, onDismiss: finishExport) { item in
@@ -130,38 +126,30 @@ struct DownloadTitleSheet: View {
             }
         }
         .onChange(of: confirmingRemoval) { _, presented in
-            if !presented { removalTarget = nil }
+            if !presented {
+                removalTarget = nil
+                if closingAfterRemoval { dismiss() }
+            }
         }
-        .task(id: removalTarget?.id) {
-            guard removalTarget != nil else { return }
-            do { try await Task.sleep(for: .milliseconds(400)) } catch { return }
-            confirmingRemoval = true
+        .onChange(of: closingAfterRemoval) { _, closing in
+            if closing, !confirmingRemoval { dismiss() }
         }
-        .task(id: closingAfterRemoval) {
-            guard closingAfterRemoval else { return }
-            do { try await Task.sleep(for: .milliseconds(400)) } catch { return }
-            dismiss()
+        .onChange(of: dynamicType, initial: true) { _, size in
+            if size.isAccessibilitySize { detent = .large }
         }
     }
 
-    private func artworkHeight(in size: CGSize) -> CGFloat {
-        if dynamicType.isAccessibilitySize { return 96 }
-        return min(size.width > size.height ? 120 : 240, max(96, size.height * 0.34))
-    }
-    private func featuredContent(_ record: DownloadRecord, artworkHeight: CGFloat) -> some View {
-        VStack(spacing: 20) {
-            VStack(spacing: 16) {
-                DownloadSheetArtwork(
-                    url: downloads.localArtwork(record.media.poster, record: record)?.absoluteString
-                        ?? record.media.poster,
-                    height: artworkHeight)
-                VStack(spacing: 6) {
-                    Text(media.name).font(.title2.weight(.semibold)).multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true).accessibilityAddTraits(.isHeader)
-                    if let subtitle = record.subtitle, subtitle != media.name {
-                        Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-                    }
+    private func featuredContent(_ record: DownloadRecord) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if dynamicType.isAccessibilitySize {
+                VStack(alignment: .leading, spacing: 12) {
+                    artwork(record)
+                    title(record)
+                }
+            } else {
+                HStack(spacing: 16) {
+                    artwork(record)
+                    title(record)
                 }
             }
             DownloadTransferProgress(record: record)
@@ -184,20 +172,38 @@ struct DownloadTitleSheet: View {
                     Button(
                         record.phase == .completed ? "Remove Download" : "Cancel Download",
                         systemImage: "trash", role: .destructive
-                    ) { removalTarget = record }
+                    ) {
+                        removalTarget = record; confirmingRemoval = true
+                    }
                 } label: {
                     Image(systemName: "ellipsis").frame(width: 24, height: 24)
                 }.buttonStyle(.glass).buttonBorderShape(.circle).controlSize(.large)
                     .frame(minWidth: Design.minimumHitTarget, minHeight: Design.minimumHitTarget)
                     .accessibilityLabel("Download options")
-            }.frame(maxWidth: 320)
+            }
         }
-        .padding(20)
-        .frame(maxWidth: 520)
-        .frame(maxWidth: .infinity)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 4)
+        .padding(.vertical, 8)
     }
+
+    private func artwork(_ record: DownloadRecord) -> some View {
+        DownloadSheetArtwork(
+            url: downloads.localArtwork(record.media.poster, record: record)?.absoluteString
+                ?? record.media.poster,
+            height: dynamicType.isAccessibilitySize ? 72 : 96)
+    }
+
+    private func title(_ record: DownloadRecord) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(media.name).font(.headline).accessibilityAddTraits(.isHeader)
+            if let subtitle = record.subtitle, subtitle != media.name {
+                Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private func share(_ record: DownloadRecord) {
         guard !preparingExport, exporting == nil, downloads.acquire(record.id) else { return }
         preparingExport = true

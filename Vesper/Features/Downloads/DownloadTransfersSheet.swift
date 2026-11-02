@@ -5,17 +5,23 @@ struct DownloadTransferRow: View {
     @Environment(AppStore.self) private var store
     @Environment(\.dynamicTypeSize) private var dynamicType
     let record: DownloadRecord
+    var open: () -> Void
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            if !dynamicType.isAccessibilitySize {
-                Artwork(
-                    url: store.downloads.localArtwork(record.media.poster, record: record)?.absoluteString
-                        ?? record.media.poster
-                )
-                .frame(width: 40, height: 60).clipShape(RoundedRectangle(cornerRadius: 6))
-                .accessibilityHidden(true)
-            }
-            DownloadTransferSummary(record: record, title: record.media.name, subtitle: record.subtitle)
+        HStack(alignment: .center, spacing: 12) {
+            Button(action: open) {
+                HStack(alignment: .top, spacing: 12) {
+                    if !dynamicType.isAccessibilitySize {
+                        Artwork(
+                            url: store.downloads.localArtwork(record.media.poster, record: record)?
+                                .absoluteString ?? record.media.poster
+                        )
+                        .frame(width: 40, height: 60).clipShape(RoundedRectangle(cornerRadius: 6))
+                        .accessibilityHidden(true)
+                    }
+                    DownloadTransferSummary(
+                        record: record, title: record.media.name, subtitle: record.subtitle)
+                }.contentShape(Rectangle())
+            }.buttonStyle(.plain).accessibilityHint("Opens download details")
             DownloadTransferAction(record: record)
         }.padding(.vertical, 6)
     }

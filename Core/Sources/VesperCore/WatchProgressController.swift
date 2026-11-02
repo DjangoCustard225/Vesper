@@ -79,6 +79,17 @@ public final class WatchProgressController {
         }.value
     }
 
+    public func mergeSimkl(
+        _ entries: [TraktWatchedEntry], pending: [TraktHistoryChange],
+        shouldApply: @escaping @MainActor () -> Bool
+    ) async -> Bool {
+        await commit { proposed in
+            guard shouldApply() else { return false }
+            proposed.mergeSimkl(entries, pending: pending)
+            return true
+        }.value
+    }
+
     public func detachTrakt() async {
         _ = await commit { proposed in
             proposed.detachTrakt()

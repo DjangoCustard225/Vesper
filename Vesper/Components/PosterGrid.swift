@@ -6,6 +6,7 @@ struct PosterCard: View {
     @Environment(\.displayScale) private var displayScale
     let item: MediaItem
     var width: CGFloat? = nil
+    var showsDownloadProgress = false
 
     private var watched: Bool { WatchProgress.supports(item) && store.isWatched(item) }
     private var downloaded: Bool { store.downloads.completed.contains { $0.media.isSameTitle(as: item) } }
@@ -22,6 +23,9 @@ struct PosterCard: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: Design.posterCornerRadius, style: .continuous))
             .overlay {
+                if showsDownloadProgress { LibraryDownloadOverlay(item: item).allowsHitTesting(false) }
+            }
+            .overlay {
                 RoundedRectangle(cornerRadius: Design.posterCornerRadius, style: .continuous)
                     .strokeBorder(.white.opacity(0.18), lineWidth: 0.5)
             }
@@ -29,18 +33,20 @@ struct PosterCard: View {
                 if watched { WatchedBadge().padding(8) }
             }
             .overlay(alignment: .topLeading) {
-                if downloaded { DownloadedBadge().padding(8) }
+                if downloaded
+                    && (!showsDownloadProgress
+                        || libraryDownload(for: item, records: store.downloads.records) == nil)
+                {
+                    DownloadedBadge().padding(8)
+                }
             }
             .frame(width: width, alignment: .topLeading)
             .contentShape(Rectangle())
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(item.name)
-            .accessibilityValue(
-                [
-                    item.releaseInfo ?? item.typeLabel, watched ? "Watched" : nil,
-                    downloaded ? "Downloaded" : nil,
-                ]
-                .compactMap { $0 }.joined(separator: ", "))
+            .accessibilityRepresentation {
+                LibraryPosterAccessibility(
+                    item: item, watched: watched, downloaded: downloaded,
+                    showsDownloadProgress: showsDownloadProgress)
+            }
     }
 }
 
@@ -67,6 +73,8 @@ struct MediaGrid: View {
     let items: [MediaItem]
     var onNearEnd: (() -> Void)? = nil
     var onSelect: ((MediaItem) -> Void)? = nil
+    var onViewDetails: ((MediaItem) -> Void)? = nil
+    var showsDownloadProgress = false
     @State private var prefetch = ArtworkPrefetchState()
     @Environment(\.displayScale) private var displayScale
     @State private var availableWidth: CGFloat = 0
@@ -89,17 +97,17 @@ struct MediaGrid: View {
                         Button {
                             onSelect(item)
                         } label: {
-                            PosterCard(item: item)
+                            PosterCard(item: item, showsDownloadProgress: showsDownloadProgress)
                         }
                     } else {
                         NavigationLink {
                             DetailView(item: item)
                         } label: {
-                            PosterCard(item: item)
+                            PosterCard(item: item, showsDownloadProgress: showsDownloadProgress)
                         }
                     }
                 }.buttonStyle(.plain)
-                    .modifier(MediaContextMenu(item: item))
+                    .modifier(MediaContextMenu(item: item, onViewDetails: onViewDetails))
                     .onScrollVisibilityChange(threshold: 0.01) { visible in
                         prefetch.visibility(visible, key: item.key, items: items)
                     }
@@ -125,5 +133,95 @@ struct CatalogHeading: View {
             Image(systemName: "chevron.right").font(.subheadline.weight(.semibold)).foregroundStyle(.gray)
                 .accessibilityHidden(true)
         }.padding(.vertical, 2).contentShape(Rectangle())
+    }
+}
+
+private func libraryDownload(for item: MediaItem, records: [DownloadRecord]) -> DownloadRecord? {
+    let candidates = records.filter { $0.phase != .completed && $0.media.isSameTitle(as: item) }
+    let selected = DownloadTransferPresentation.preferredID(in: candidates, keeping: nil)
+    return candidates.first { $0.id == selected }
+}
+
+private struct LibraryDownloadOverlay: View {
+    @Environment(AppStore.self) private var store
+    let item: MediaItem
+
+    var body: some View {
+        if let record = libraryDownload(for: item, records: store.downloads.records) {
+            LibraryDownloadIndicator(record: record)
+        }
+    }
+}
+
+private struct LibraryDownloadIndicator: View {
+    @Environment(AppStore.self) private var store
+    let record: DownloadRecord
+    private var progress: DownloadProgress { store.downloads.progress(for: record) }
+    private var fraction: Double? {
+        DownloadTransferPresentation(record: record).fraction(
+            bytes: progress.bytes, total: progress.total, work: progress.work)
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.6)
+            VStack(spacing: 6) {
+                ZStack {
+                    Circle().stroke(.white.opacity(0.28), lineWidth: 3)
+                    if let fraction {
+                        Circle().trim(from: 0, to: fraction)
+                            .stroke(.white, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                        Text("\(Int((fraction * 100).rounded(.down)))%")
+                            .font(.system(size: 14, weight: .semibold)).monospacedDigit().minimumScaleFactor(
+                                0.7)
+                    } else if record.phase == .paused || record.phase == .pausing {
+                        Image(systemName: "pause.fill")
+                    } else if record.phase == .failed {
+                        Image(systemName: "exclamationmark.circle.fill")
+                    } else {
+                        ProgressView().tint(.white)
+                    }
+                }.frame(width: 58, height: 58)
+                if fraction != nil && (record.phase == .paused || record.phase == .pausing) {
+                    Image(systemName: "pause.fill").font(.caption.weight(.semibold))
+                } else if fraction != nil && record.phase == .failed {
+                    Image(systemName: "exclamationmark.circle.fill").font(.caption.weight(.semibold))
+                }
+            }.foregroundStyle(.white)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: Design.posterCornerRadius, style: .continuous))
+        .accessibilityHidden(true)
+    }
+}
+
+private struct LibraryPosterAccessibility: View {
+    @Environment(AppStore.self) private var store
+    let item: MediaItem
+    let watched: Bool
+    let downloaded: Bool
+    let showsDownloadProgress: Bool
+
+    private var status: String? {
+        guard showsDownloadProgress, let record = libraryDownload(for: item, records: store.downloads.records)
+        else {
+            return downloaded ? "Downloaded" : nil
+        }
+        let progress = store.downloads.progress(for: record)
+        let presentation = DownloadTransferPresentation(record: record)
+        let state = presentation.status(
+            networkAvailable: store.downloads.networkAvailable, canTransfer: store.downloads.canTransfer,
+            work: progress.work)
+        guard
+            let fraction = presentation.fraction(
+                bytes: progress.bytes, total: progress.total, work: progress.work)
+        else { return state }
+        return "\(state), \(Int((fraction * 100).rounded(.down))) percent"
+    }
+    var body: some View {
+        Text(item.name).accessibilityLabel(item.name)
+            .accessibilityValue(
+                [item.releaseInfo ?? item.typeLabel, watched ? "Watched" : nil, status].compactMap { $0 }
+                    .joined(separator: ", "))
     }
 }

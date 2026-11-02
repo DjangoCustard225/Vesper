@@ -62,6 +62,7 @@ private enum NZBFinderField {
 }
 
 private struct NZBFinderFieldView: View {
+    @FocusState private var isInputFocused: Bool
     @Bindable var draft: NZBFinderDraft
     let field: NZBFinderField
 
@@ -70,7 +71,8 @@ private struct NZBFinderFieldView: View {
             Section {
                 switch field {
                 case .apiKey:
-                    SecureField("Required", text: $draft.apiKey).accessibilityLabel("API Key")
+                    SecureField("Required", text: $draft.apiKey).focused($isInputFocused).accessibilityLabel(
+                        "API Key")
                 case .enabled:
                     Toggle("Enabled", isOn: $draft.enabled)
                 }
@@ -79,6 +81,12 @@ private struct NZBFinderFieldView: View {
         .navigationTitle(field.title).navigationBarTitleDisplayMode(.inline).appScrollEdges()
         .textInputAutocapitalization(.never).autocorrectionDisabled()
         .scrollDismissesKeyboard(.interactively)
+        .task {
+            guard field == .apiKey else { return }
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            isInputFocused = true
+        }
         .onChange(of: draft.inputs) { _, _ in draft.cancel() }
     }
 }

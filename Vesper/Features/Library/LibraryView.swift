@@ -50,7 +50,9 @@ struct LibraryView: View {
                             } else {
                                 selectedDetail = item
                             }
-                        })
+                        },
+                        onViewDetails: { selectedDetail = $0 },
+                        showsDownloadProgress: !offlineOnly)
                 }
             }.padding(20).frame(maxWidth: 1100).frame(maxWidth: .infinity)
         }

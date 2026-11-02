@@ -227,6 +227,7 @@ private enum UsenetProviderField {
 }
 
 private struct UsenetProviderFieldView: View {
+    @FocusState private var isInputFocused: Bool
     @Bindable var draft: UsenetProviderDraft
     let field: UsenetProviderField
 
@@ -235,15 +236,19 @@ private struct UsenetProviderFieldView: View {
             Section {
                 switch field {
                 case .host:
-                    TextField("news.example.com", text: $draft.host).keyboardType(.URL)
-                        .accessibilityLabel("Host")
+                    TextField("news.example.com", text: $draft.host).keyboardType(.URL).focused(
+                        $isInputFocused
+                    )
+                    .accessibilityLabel("Host")
                 case .port:
-                    TextField("563", text: $draft.port).keyboardType(.numberPad)
+                    TextField("563", text: $draft.port).keyboardType(.numberPad).focused($isInputFocused)
                         .accessibilityLabel("Port")
                 case .username:
-                    TextField("Optional", text: $draft.username).accessibilityLabel("Username")
+                    TextField("Optional", text: $draft.username).focused($isInputFocused).accessibilityLabel(
+                        "Username")
                 case .password:
-                    SecureField("Optional", text: $draft.password).accessibilityLabel("Password")
+                    SecureField("Optional", text: $draft.password).focused($isInputFocused)
+                        .accessibilityLabel("Password")
                 case .connections:
                     LabeledContent("Connections", value: String(draft.connections)).monospacedDigit()
                     Slider(
@@ -263,6 +268,12 @@ private struct UsenetProviderFieldView: View {
         .navigationTitle(field.title).navigationBarTitleDisplayMode(.inline).appScrollEdges()
         .textInputAutocapitalization(.never).autocorrectionDisabled()
         .scrollDismissesKeyboard(.interactively)
+        .task {
+            guard field != .connections else { return }
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            isInputFocused = true
+        }
         .onChange(of: draft.inputs) { _, _ in draft.cancel() }
     }
 }

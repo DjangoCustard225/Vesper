@@ -44,6 +44,13 @@ struct TraktSettingsView: View {
                 }
             }
             if trakt.isConnected {
+                Section {
+                    LabeledContent(
+                        "Tracking", value: store.activeTrackingService == .trakt ? "Active" : "Paused")
+                    if store.activeTrackingService != .trakt {
+                        Button("Use Trakt") { store.activeTrackingService = .trakt }
+                    }
+                }
                 Section("Sync") {
                     Button {
                         Task { await store.syncTrakt(force: true) }
@@ -54,7 +61,8 @@ struct TraktSettingsView: View {
                             if trakt.isSyncing { ProgressView().accessibilityHidden(true) }
                         }
                     }.disabled(
-                        trakt.isSyncing || trakt.needsReconnect || trakt.isAuthorizing || changingAccount)
+                        trakt.isSyncing || trakt.needsReconnect || trakt.isAuthorizing || changingAccount
+                            || !trakt.enabled)
                     LabeledContent("Last synced") {
                         if let date = trakt.state.lastSyncedAt {
                             Text(date, style: .relative).foregroundStyle(.secondary)

@@ -3,9 +3,15 @@ import VesperCore
 
 struct MediaContextMenu: ViewModifier {
     let item: MediaItem
+    var onViewDetails: ((MediaItem) -> Void)? = nil
 
     func body(content: Content) -> some View {
-        content.contextMenu { MediaMenuActions(item: item) }
+        content.contextMenu {
+            if let onViewDetails {
+                Button("View Details", systemImage: "info.circle") { onViewDetails(item) }
+            }
+            MediaMenuActions(item: item)
+        }
     }
 }
 

@@ -19,6 +19,7 @@ struct VesperApp: App {
                     }
                     if phase == .background {
                         store.trakt.suspend()
+                        store.simkl.suspendSync()
                         store.downloads.enterBackground()
                         Task {
                             await store.flushWatchProgress()

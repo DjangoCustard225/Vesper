@@ -86,6 +86,16 @@ final class AppStore {
     private(set) var library = LibraryState()
     private let history = WatchProgressController(repository: WatchProgressStorage.repository)
     let trakt = TraktStore()
+    let simkl = SimklStore()
+
+    var activeTrackingService: TrackingService = TrackingService.current {
+        didSet {
+            UserDefaults.standard.set(activeTrackingService.rawValue, forKey: "activeTrackingService")
+            trakt.pauseTracking()
+            simkl.pause()
+            Task { await resumeTrakt() }
+        }
+    }
 
     var watchProgress: WatchProgress { history.state }
 
@@ -685,23 +695,35 @@ final class AppStore {
 
     func setWatched(_ watched: Bool, for item: MediaItem, episode: Episode? = nil) {
         let revision = trakt.connectionRevision
+        let simklRevision = simkl.connectionRevision
+        let simklConnected = simkl.isConnected
         let saved = history.setWatched(watched, for: item, episode: episode)
         let change = TraktHistoryChange(
             media: item, videoID: episode?.watchHistoryID(for: item), action: watched ? .watched : .unwatched)
         Task {
-            guard await saved.value, revision == trakt.connectionRevision else { return }
-            trakt.enqueue(change, history: history)
+            guard await saved.value else { return }
+            if simklConnected, simklRevision == simkl.connectionRevision {
+                simkl.setWatched(watched, media: item, videoID: episode?.watchHistoryID(for: item))
+                Task { await simkl.synchronize(history: history, force: true) }
+            }
+            if revision == trakt.connectionRevision { trakt.enqueue(change, history: history) }
         }
     }
+
+    func syncSimkl() async { await simkl.synchronize(history: history, force: true) }
 
     func connectTrakt() { trakt.startSignIn(history: history) }
 
     func syncTrakt(force: Bool = false) async { await trakt.synchronize(history: history, force: force) }
 
-    func resumeTrakt() async { await trakt.resume(history: history) }
+    func resumeTrakt() async {
+        if activeTrackingService == .trakt { await trakt.resume(history: history) }
+        if activeTrackingService == .simkl { await simkl.synchronize(history: history) }
+    }
 
     func refreshTraktWatchedEpisodes(for item: MediaItem) async {
-        await trakt.refreshWatchedEpisodes(for: item, history: history)
+        if activeTrackingService == .trakt { await trakt.refreshWatchedEpisodes(for: item, history: history) }
+        if activeTrackingService == .simkl { await simkl.synchronize(history: history) }
     }
 
     func disconnectTrakt() async { await trakt.disconnect(history: history) }
@@ -715,6 +737,7 @@ final class AppStore {
 
     func scrobble(_ event: TraktScrobbleEvent, media: MediaItem, videoID: String) {
         trakt.receive(event, media: media, videoID: videoID, history: history)
+        simkl.receive(event, media: media, videoID: videoID, history: history)
     }
 
     func flushWatchProgress() async { await history.flush() }

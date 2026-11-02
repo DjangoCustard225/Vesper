@@ -132,3 +132,7 @@ extension SecureStorage.Key where Value == String {
 extension SecureStorage.Key where Value == [UsenetProvider] {
     static var usenetBackupProviders: Self { Self(account: "usenetBackupProviders") }
 }
+
+extension SecureStorage.Key where Value == SimklTokens {
+    static var simklTokens: Self { Self(account: "simklTokens") }
+}

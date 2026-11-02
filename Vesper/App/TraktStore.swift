@@ -37,6 +37,14 @@ final class TraktStore {
     @ObservationIgnored private var watchedProgressRefreshes: [String: Date] = [:]
     @ObservationIgnored private var watchedProgressInFlight = Set<String>()
 
+    var enabled: Bool { TrackingService.current == .trakt }
+    func pauseTracking() {
+        generation = UUID()
+        suspend()
+        syncTask?.task.cancel()
+        scrobbleDelivery.cancel()
+    }
+
     var connectionRevision: UUID { generation }
 
     init() {
@@ -117,13 +125,13 @@ final class TraktStore {
     }
 
     func refreshWatchedEpisodes(for media: MediaItem, history: WatchProgressController) async {
-        guard isConnected, syncHistory, !needsReconnect, writable, Date() >= rateLimitedUntil,
+        guard enabled, isConnected, syncHistory, !needsReconnect, writable, Date() >= rateLimitedUntil,
             media.type == "series"
         else { return }
         let revision = generation
         do {
             try await establishAccount(history: history, revision: revision)
-            guard generation == revision, isConnected, syncHistory else { return }
+            guard enabled, generation == revision, isConnected, syncHistory else { return }
             let identity = MediaIdentity.aliases(media).sorted().first ?? media.key
             let key = "\(state.account?.id ?? "unknown"): \(identity)"
             if let lastRefresh = watchedProgressRefreshes[key],
@@ -134,11 +142,11 @@ final class TraktStore {
             guard watchedProgressInFlight.insert(key).inserted else { return }
             defer { watchedProgressInFlight.remove(key) }
             let entries = try await client.watchedEpisodes(for: media)
-            guard generation == revision, isConnected, syncHistory else { return }
+            guard enabled, generation == revision, isConnected, syncHistory else { return }
             let applied = await history.replaceTraktHistory(
                 for: media, with: entries, pending: state.pending,
                 shouldApply: {
-                    self.generation == revision && self.isConnected && self.syncHistory
+                    self.generation == revision && self.enabled && self.isConnected && self.syncHistory
                 })
             guard applied, generation == revision else { return }
             if watchedProgressRefreshes.count >= 128 {
@@ -182,7 +190,7 @@ final class TraktStore {
     }
 
     func enqueue(_ change: TraktHistoryChange, history: WatchProgressController) {
-        guard isConnected, syncHistory else { return }
+        guard enabled, isConnected, syncHistory else { return }
         do {
             var proposed = state
             try proposed.enqueue(change)
@@ -196,7 +204,7 @@ final class TraktStore {
     }
 
     func synchronize(history: WatchProgressController, force: Bool = false) async {
-        guard isConnected, !needsReconnect, writable else { return }
+        guard enabled, isConnected, !needsReconnect, writable else { return }
         guard Date() >= rateLimitedUntil else { return }
         if let syncTask { await syncTask.task.value; return }
         guard force || Date() >= nextAttempt else { return }
@@ -230,13 +238,14 @@ final class TraktStore {
                     let snapshot = try await client.watched(
                         previousFingerprint: force || changed ? nil : state.fingerprint)
                     try Task.checkCancellation()
-                    guard generation == revision, isConnected, syncHistory else { return }
+                    guard enabled, generation == revision, isConnected, syncHistory else { return }
                     if let snapshot {
                         guard
                             await history.mergeTrakt(
                                 snapshot.entries, pending: state.pending,
                                 shouldApply: {
-                                    self.generation == revision && self.isConnected && self.syncHistory
+                                    self.generation == revision && self.enabled && self.isConnected
+                                        && self.syncHistory
                                 })
                         else { throw WatchProgressError.writeFailed }
                         guard generation == revision else { return }
@@ -328,7 +337,7 @@ final class TraktStore {
     func receive(
         _ event: TraktScrobbleEvent, media: MediaItem, videoID: String, history: WatchProgressController
     ) {
-        guard isConnected, scrobbling, WatchProgress.supports(media) else { return }
+        guard enabled, isConnected, scrobbling, WatchProgress.supports(media) else { return }
         let revision = generation
         let change = TraktHistoryChange(
             id: event.sessionID, media: media, videoID: videoID, action: .stopped, progress: event.progress)
@@ -341,7 +350,7 @@ final class TraktStore {
             } catch { scrobbleError = error.localizedDescription; return }
         }
         scrobbleDelivery.submit(event) { [weak self] in
-            guard let self, self.generation == revision, self.isConnected, self.scrobbling,
+            guard let self, self.generation == revision, self.enabled, self.isConnected, self.scrobbling,
                 !self.needsReconnect
             else { throw CancellationError() }
             if Date() < self.rateLimitedUntil {
