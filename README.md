@@ -25,18 +25,19 @@ Vesper is a media player written in Swift for iOS. It connects to external servi
 
 - Browse movies and shows, cast and related titles.
 - Stream from Stremio add-ons or your own Usenet provider.
-- Play in the built-in player, or open VLC, Infuse or Outplayer.
-- Download titles to watch offline.
+- Use the built-in player, or use external players like VLC, Infuse or Outplayer.
+- Download content to watch offline.
 - Keep a library and sync watched history with Trakt or SIMKL.
 
 ## Get started
 
 1. Download the IPA for **iOS 27 or later**. It's unsigned, so it needs signing before installation.
 2. Add a TMDB API key in **Settings → TMDB**.
-3. Add an add-on in **Settings → Add-ons** or a Usenet provider in **Settings → Usenet**.
-4. Open a title, tap **Play** and choose a source.
+3. Optionally, configure the other services in the settings for an enriched experience.
+4. Add an add-on in **Settings → Add-ons** or a Usenet provider in **Settings → Usenet**.
+5. Open a title, tap **Play** and choose a source.
 
-TVDB, MDBList, SubDL, NZBFinder, Trakt and SIMKL are optional and set up in Settings. In LiveContainer, turn on **Settings → Video Player → Show all external players**. Vesper doesn't include content or support torrents.
+In LiveContainer, turn on **Settings → Video Player → Show all external players**. Vesper doesn't include content or support torrents.
 
 ## Privacy
 
