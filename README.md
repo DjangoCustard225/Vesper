@@ -25,8 +25,8 @@ For Dolby Vision and HDR playback, choose AVPlayer.
 ## Screenshots
 
 <picture>
-  <source media="(max-width: 600px)" srcset="docs/screenshots/readme-mobile.png">
-  <img src="docs/screenshots/readme-desktop.png" width="840" alt="Four Vesper app screenshots arranged for desktop or mobile">
+  <source media="(max-width: 600px)" srcset="docs/screenshots/vesper-mobile.png">
+  <img src="docs/screenshots/vesper-desktop.png" width="100%" alt="Vesper home, title details, search, library, source picker and settings screens">
 </picture>
 
 ## What you can do
