@@ -12,7 +12,7 @@
   <a href="https://github.com/DjangoCustard225/Vesper/releases/latest/download/Vesper.ipa">Download Vesper</a>
 </p>
 
-Vesper brings movie and TV discovery, Stremio add-ons and Usenet streaming together on iPhone and iPad.
+Vesper is a media player written in Swift for iOS. It connects to external services and addons to display, stream and download content in a modern interface.
 
 ## Screenshots
 
