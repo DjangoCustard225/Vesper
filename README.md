@@ -12,10 +12,6 @@
   <img src="https://img.shields.io/badge/iOS-27%2B-007AFF?style=flat-square" alt="Requires iOS 27 or later">
 </p>
 
-<p align="center">
-  <a href="https://github.com/DjangoCustard225/Vesper/releases/latest/download/Vesper.ipa">Download Vesper</a>
-</p>
-
 Vesper brings movie and TV discovery, Stremio add-ons and playback together on iPhone and iPad. Find something to watch, save titles for later and pick up where you left off.
 
 **Vesper** includes AVPlayer. You can also use Infuse, Outplayer or VLC.
