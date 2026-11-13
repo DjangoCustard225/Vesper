@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="Vesper/Assets.xcassets/AppIcon.appiconset/AppIcon.png" width="112" alt="Vesper app icon">
+  <img src="docs/app-icon.png" width="112" alt="Vesper app icon">
 </p>
 
 <h1 align="center">Vesper</h1>
