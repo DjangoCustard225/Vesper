@@ -8,10 +8,6 @@
   <img src="https://img.shields.io/badge/iOS-27%2B-007AFF?style=flat-square" alt="Requires iOS 27 or later">
 </p>
 
-<p align="center">
-  <a href="https://github.com/DjangoCustard225/Vesper/releases/latest/download/Vesper.ipa">Download Vesper</a>
-</p>
-
 Vesper is a media player written in Swift for iOS. It connects to external services and addons to display, stream and download content in a modern interface.
 
 ## Screenshots
