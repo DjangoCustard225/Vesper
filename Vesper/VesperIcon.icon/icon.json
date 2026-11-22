@@ -1,14 +1,13 @@
 {
   "fill": {
-    "linear-gradient": [
-      "srgb:0.16471,0.57647,0.92549,1.00000",
-      "srgb:0.07059,0.35686,0.75294,1.00000"
-    ]
+    "solid": "extended-srgb:0.09412,0.08627,0.07843,1.00000"
   },
   "fill-specializations": [
     {
       "appearance": "dark",
-      "value": "system-dark"
+      "value": {
+        "solid": "extended-srgb:0.05490,0.05098,0.04706,1.00000"
+      }
     },
     {
       "appearance": "tinted",
@@ -17,81 +16,58 @@
   ],
   "groups": [
     {
-      "name": "Playback controls",
       "layers": [
         {
-          "name": "Progress",
-          "image-name": "Progress.svg",
           "fill-specializations": [
             {
-              "appearance": "dark",
+              "appearance": "tinted",
               "value": {
-                "solid": "srgb:1.00000,0.98039,0.92157,1.00000"
+                "solid": "srgb:0.55000,0.55000,0.55000,1.00000"
               }
             }
-          ]
+          ],
+          "glass": false,
+          "image-name": "RightStroke.svg",
+          "name": "Right Stroke"
         },
         {
-          "name": "Track",
-          "image-name": "Track.svg"
-        },
-        {
-          "name": "Play",
-          "image-name": "Play.svg",
           "fill-specializations": [
             {
-              "appearance": "dark",
+              "appearance": "tinted",
               "value": {
-                "solid": "srgb:1.00000,0.98039,0.92157,1.00000"
+                "solid": "srgb:1.00000,1.00000,1.00000,1.00000"
               }
             }
-          ]
-        }
-      ],
-      "specular": false,
-      "shadow": {
-        "kind": "neutral",
-        "opacity": 0
-      }
-    },
-    {
-      "name": "Playback card",
-      "layers": [
+          ],
+          "glass": false,
+          "image-name": "LeftStroke.svg",
+          "name": "Left Stroke"
+        },
         {
-          "name": "Cream card",
-          "image-name": "Card.svg"
+          "fill-specializations": [
+            {
+              "appearance": "tinted",
+              "value": {
+                "solid": "srgb:0.78000,0.78000,0.78000,1.00000"
+              }
+            }
+          ],
+          "glass": false,
+          "image-name": "Overlap.svg",
+          "name": "Overlap"
         }
       ],
-      "specular": true,
       "shadow": {
         "kind": "neutral",
-        "opacity": 0.12
+        "opacity": 0.35
       },
-      "translucency": {
-        "enabled": true,
-        "value": 0.08
-      }
-    },
-    {
-      "name": "Backing card",
-      "layers": [
-        {
-          "name": "Tilted blue card",
-          "image-name": "Backing.svg"
-        }
-      ],
-      "specular": true,
-      "shadow": {
-        "kind": "neutral",
-        "opacity": 0.08
-      },
-      "translucency": {
-        "enabled": true,
-        "value": 0.2
-      }
+      "specular": false
     }
   ],
   "supported-platforms": {
+    "circles": [
+      "watchOS"
+    ],
     "squares": "shared"
   }
 }

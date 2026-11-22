@@ -4,25 +4,42 @@ import VesperCore
 @main
 struct VesperApp: App {
     @UIApplicationDelegateAdaptor(DownloadAppDelegate.self) private var downloadDelegate
-    @State private var store = AppStore()
+    @State private var store: AppStore
     @Environment(\.scenePhase) private var scenePhase
+
+    init() {
+        let store = AppStore()
+        _store = State(initialValue: store)
+        // Background tasks must be registered before launch finishes.
+        WidgetRefresh.register(store: store)
+        // Vesper shows no scroll bars. SwiftUI scroll views follow `.scrollIndicators(.hidden)` below;
+        // this covers scroll views UIKit creates on its own.
+        UIScrollView.appearance().showsVerticalScrollIndicator = false
+        UIScrollView.appearance().showsHorizontalScrollIndicator = false
+    }
 
     var body: some Scene {
         WindowGroup {
-            RootView().environment(store).tint(.white).preferredColorScheme(.dark)
+            RootView().environment(store).tint(.white).preferredColorScheme(.dark).scrollIndicators(.hidden)
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active {
                         store.refreshPlayers()
                         store.downloads.enterForeground()
                         store.downloads.start()
                         Task { await store.resumeTrakt() }
+                        store.folderSync.syncNow(store: store)
+                        WidgetPublisher.shared.schedule(store: store, delay: .seconds(1))
                     }
                     if phase == .background {
                         store.trakt.suspend()
                         store.simkl.suspendSync()
                         store.downloads.enterBackground()
+                        store.folderSync.syncNow(store: store)
+                        WidgetPublisher.shared.schedule(store: store, delay: .zero)
+                        WidgetRefresh.schedule()
                         Task {
                             await store.flushWatchProgress()
+                            await store.flushLibrary()
                             await DiagnosticRecorder.shared.flush()
                         }
                     }
@@ -44,7 +61,7 @@ struct RootView: View {
     @State private var selectedTab = AppTab.discover
     @State private var showingSearch = false
     @State private var pendingSearchResult: MediaItem?
-    @State private var searchResult: MediaItem?
+    @State private var presented: PresentedTitle?
     @State private var launch = OfflineLaunch()
 
     var body: some View {
@@ -117,6 +134,17 @@ struct RootView: View {
         .onOpenURL { url in
             // Ignore callbacks from player links created by older app versions.
             if AppIdentity.urlSchemes.contains(url.scheme ?? ""), url.host == "player-return" { return }
+            if url.scheme == WidgetLink.scheme, url.host.flatMap(WidgetLink.Action.init(rawValue:)) != nil {
+                // Opened from a widget or control. At launch, wait until saved progress is read so the
+                // link finds the title it names.
+                Task {
+                    await store.waitUntilLoaded()
+                    guard let title = PresentedTitle(widgetURL: url, store: store) else { return }
+                    showingSearch = false
+                    presented = title
+                }
+                return
+            }
             if url.scheme == "stremio" {
                 store.incomingAddon = url.absoluteString
                 store.showInstall = true
@@ -127,6 +155,18 @@ struct RootView: View {
                 store.incomingAddon = value
                 store.showInstall = true
             }
+        }
+        .alert(
+            "Add-ons from Another Device",
+            isPresented: Binding(get: { store.pendingSyncedAddons != nil }, set: { _ in })
+        ) {
+            Button("Add") { store.acceptSyncedAddons() }
+            Button("Stop Syncing Add-ons", role: .cancel) { store.declineSyncedAddons() }
+        } message: {
+            let names = store.newSyncedAddons(in: store.pendingSyncedAddons ?? []).map(\.manifest.name)
+            Text(
+                "Your sync folder has add-ons that aren’t installed here: \(names.joined(separator: ", ")). Add them only if you installed them on your other device."
+            )
         }
         .sheet(isPresented: $store.showInstall) {
             InstallAddonView(initialURL: store.incomingAddon ?? "")
@@ -141,18 +181,20 @@ struct RootView: View {
             }
             .presentationDetents([.large]).presentationDragIndicator(.hidden)
         }
-        .fullScreenCover(item: $searchResult) { item in
+        .fullScreenCover(item: $presented) { title in
             NavigationStack {
-                DetailView(item: item)
-                    .toolbar {
-                        ToolbarItem(placement: .topBarLeading) {
-                            Button {
-                                searchResult = nil
-                            } label: {
-                                Label("Back", systemImage: "chevron.left")
-                            }.labelStyle(.iconOnly).accessibilityLabel("Back to previous tab")
-                        }
+                DetailView(
+                    item: title.item, startPlayback: title.startPlayback, resumeRecord: title.resumeRecord
+                )
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button {
+                            presented = nil
+                        } label: {
+                            Label("Back", systemImage: "chevron.left")
+                        }.labelStyle(.iconOnly).accessibilityLabel("Back to previous tab")
                     }
+                }
             }
         }
 
@@ -166,6 +208,6 @@ struct RootView: View {
     private func openSearchResult() {
         guard let item = pendingSearchResult else { return }
         pendingSearchResult = nil
-        searchResult = item
+        presented = PresentedTitle(item: item)
     }
 }

@@ -53,6 +53,7 @@ import VesperCore
             request = PlaybackRequest(
                 url: url, title: media.name, subtitle: record.subtitle,
                 artworkURL: store.downloads.localArtwork(media.poster, record: record),
+                subtitleMedia: media, subtitleVideoID: historyID,
                 resumeSeconds: max(
                     store.watchProgress.resumePosition(for: media, videoID: historyID),
                     store.watchProgress.resumePosition(for: media, videoID: record.videoID)),

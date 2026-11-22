@@ -22,12 +22,13 @@ struct LineFramer {
     var pending: Data { buffer }
     var pendingCount: Int { buffer.count }
 
-    /// Scan the buffer once, emitting each complete line, then drop the whole consumed prefix in a
-    /// single copy. (Compacting after every line is O(n²) over a large article body.)
+    /// Scan the buffer once, emitting each complete line as a slice of the buffer (no per-line
+    /// copy), then keep only the unterminated tail. (Compacting after every line is O(n²) over a
+    /// large article body.)
     private mutating func drainCompleteLines() -> [Data] {
         let lf: UInt8 = 0x0A
         let cr: UInt8 = 0x0D
-        var lines: [Data] = []
+        var ranges: [Range<Int>] = []
         var consumedUpTo = 0
 
         buffer.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
@@ -39,7 +40,7 @@ struct LineFramer {
                 if bytes[i] == lf {
                     var end = i
                     if end > lineStart, bytes[end - 1] == cr { end -= 1 }
-                    lines.append(Data(bytes[lineStart..<end]))
+                    ranges.append(lineStart..<end)
                     lineStart = i + 1
                 }
                 i += 1
@@ -47,12 +48,12 @@ struct LineFramer {
             consumedUpTo = lineStart
         }
 
-        // Keep only the unterminated tail; done once instead of per line.
+        let base = buffer.startIndex
+        let lines = ranges.map { buffer[(base + $0.lowerBound)..<(base + $0.upperBound)] }
+        // Keep only the unterminated tail; done once instead of per line. The emitted slices keep
+        // the old storage alive, so this never copies line bytes.
         if consumedUpTo > 0 {
-            buffer =
-                consumedUpTo < buffer.count
-                ? Data(buffer[(buffer.startIndex + consumedUpTo)...])
-                : Data()
+            buffer = consumedUpTo < buffer.count ? Data(buffer[(base + consumedUpTo)...]) : Data()
         }
         return lines
     }

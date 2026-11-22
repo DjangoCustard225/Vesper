@@ -28,8 +28,11 @@ struct PosterTitle: View {
     }
 
     private func titleImage(_ image: Image) -> some View {
+        // Sit the logo on the bottom of its box, so the gap to the content below is the same
+        // for wide, short logos and tall ones.
         image.resizable().scaledToFit().frame(
-            maxWidth: compact ? 300 : 340, maxHeight: compact ? 90 : 125, alignment: alignment
+            maxWidth: compact ? 300 : 340, maxHeight: compact ? 90 : 125,
+            alignment: Alignment(horizontal: alignment.horizontal, vertical: .bottom)
         )
         .shadow(color: .black.opacity(0.65), radius: 12, y: 4)
     }

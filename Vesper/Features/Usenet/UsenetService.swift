@@ -11,7 +11,8 @@ import VesperCore
     private var token: UUID?
     private var session: UsenetSession?
     private var server: UsenetHTTPServer?
-    private var pool: NNTPPool?
+    private var pool: FallbackArticleSource?
+    private var opened: ContinuousClock.Instant?
     private let root: URL
     private let cleanup: Task<Void, Never>
     private init() {
@@ -35,6 +36,27 @@ import VesperCore
                 }
             }
         }
+        raiseConnectionsOnce()
+    }
+    /// One-time move of saved providers to the 50-connection default. The pool lowers the count
+    /// on its own if a provider allows fewer, and the Settings value can still be changed.
+    private func raiseConnectionsOnce() {
+        let flag = "usenetConnectionsRaisedTo50"
+        guard storageError == nil, !UserDefaults.standard.bool(forKey: flag) else { return }
+        let target = UsenetProvider.defaultConnections
+        do {
+            if var primary = provider, primary.connections < target {
+                primary.connections = target
+                try save(primary)
+            }
+            let raised = backupProviders.map { backup in
+                var backup = backup; backup.connections = max(backup.connections, target); return backup
+            }
+            if raised != backupProviders { try saveBackupProviders(raised) }
+            UserDefaults.standard.set(true, forKey: flag)
+        } catch {
+            storageError = error.localizedDescription
+        }
     }
     func save(_ value: UsenetProvider) throws {
         let validated = try value.validated()
@@ -55,32 +77,35 @@ import VesperCore
     }
     func prepare(
         token: UUID, source: StreamSource? = nil, data: Data? = nil, name: String? = nil,
-        passwords: [String] = []
+        passwords: [String] = [], episodeTarget: UsenetEpisodeTarget? = nil,
+        onStage: (@MainActor (UsenetPreparationStage) -> Void)? = nil
     ) async throws -> [UsenetVideo] {
+        var prepared = false
+        defer { if !prepared { DownloadManager.shared.releaseUsenetPlayback(token) } }
+        let oldToken = self.token
         let oldServer = server, oldSession = session, oldPool = pool
-        self.token = token; server = nil; session = nil; pool = nil
+        self.token = token; server = nil; session = nil; pool = nil; opened = nil
         await oldServer?.stop(); await oldSession?.stop(); await oldPool?.stop()
+        if let oldToken { DownloadManager.shared.releaseUsenetPlayback(oldToken) }
         await cleanup.value
+        try Task.checkCancellation()
+        guard self.token == token else { throw CancellationError() }
         try await DownloadManager.shared.reserveUsenetPlayback(token)
         try Task.checkCancellation()
         guard self.token == token else { throw CancellationError() }
-        let selected: UsenetProvider
-        if let servers = source?.servers, !servers.isEmpty {
-            guard servers.count <= 16,
-                let first = servers.compactMap({
-                    try? UsenetProvider.from(server: $0, limit: provider?.connections ?? 8)
-                }).first
-            else { throw UsenetError.providerRequired }
-            selected = first
-        } else {
-            guard let saved = provider else { throw UsenetError.providerRequired };
-            selected = try saved.validated()
-        }
+        let providers = try UsenetProvider.selection(
+            servers: source?.servers ?? [], saved: provider, backups: backupProviders)
+        // Open connections while the NZB downloads and the files are checked, so logins are
+        // finished before the first article is needed.
+        let pool = try FallbackArticleSource(providers: providers)
+        self.pool = pool
+        Task { await pool.warm(Self.warmConnections) }
         let bytes: Data
         var passwords = passwords
         if let data {
             bytes = data
         } else if let raw = source?.nzbUrl {
+            onStage?(.fetchingNZB)
             let result = try await Self.fetch(try AddonURL.http(raw))
             bytes = result.data
             if let password = result.password { passwords.append(password) }
@@ -94,22 +119,28 @@ import VesperCore
         }.value
         try Task.checkCancellation()
         guard self.token == token else { throw CancellationError() }
-        let pool = try NNTPPool(provider: selected)
-        self.pool = pool
+        onStage?(.checkingFiles)
         let session = try UsenetSession(
             manifest: manifest, source: pool,
-            cacheDirectory: root.appendingPathComponent(token.uuidString, isDirectory: true))
+            cacheDirectory: root.appendingPathComponent(token.uuidString, isDirectory: true),
+            episodeTarget: source?.fileIdx == nil && source?.fileMustInclude == nil ? episodeTarget : nil)
         self.session = session
-        let catalog = try await session.catalog()
+        let catalog = try await session.catalog(
+            includingAuxiliaryVideos: source?.fileIdx != nil, selectedVideoIndex: source?.fileIdx)
         try Task.checkCancellation()
         guard self.token == token else { await session.stop(); throw CancellationError() }
-        return try UsenetSelection.candidates(
-            catalog, fileIndex: source?.fileIdx, pattern: source?.fileMustInclude)
+        let videos = try UsenetSelection.candidates(
+            catalog, fileIndex: nil, pattern: source?.fileMustInclude)
+        prepared = true
+        return videos
     }
     func open(_ video: UsenetVideo, token: UUID, onFailure: @escaping @MainActor @Sendable (String) -> Void)
         async throws -> URL
     {
         guard self.token == token, let session else { throw UsenetError.cancelled }
+        // The player reads the file's start and, for most containers, its index at the end first.
+        Task { await session.warmUp(video: video) }
+        opened = ContinuousClock.now
         let server = UsenetHTTPServer(); self.server = server
         let url = try await server.start(video: video, session: session) { [weak self] error in
             Task { @MainActor in if self?.token == token { onFailure(error.localizedDescription) } }
@@ -120,8 +151,35 @@ import VesperCore
         guard let token, token == self.token else { return }
         let oldServer = server, oldSession = session, oldPool = pool
         self.token = nil; server = nil; session = nil; pool = nil
-        await oldServer?.stop(); await oldSession?.stop(); await oldPool?.stop()
+        await oldServer?.stop()
+        if let oldSession, let started = opened {
+            await Self.record(oldSession, pool: oldPool, since: started)
+        }
+        opened = nil
+        await oldSession?.stop(); await oldPool?.stop()
         DownloadManager.shared.releaseUsenetPlayback(token)
+    }
+    private static let warmConnections = 20
+    /// Saves how the session performed to the exportable diagnostics log.
+    private static func record(
+        _ session: UsenetSession, pool: FallbackArticleSource?, since: ContinuousClock.Instant
+    )
+        async
+    {
+        let stats = await session.statistics
+        guard stats.cache.articles > 0 else { return }
+        func milliseconds(_ value: Duration) -> Int {
+            Int(value.components.seconds * 1000 + value.components.attoseconds / 1_000_000_000_000_000)
+        }
+        let summary = UsenetStreamDiagnostics(
+            firstReadMilliseconds: stats.firstRead.map(milliseconds),
+            articles: stats.cache.articles, megabytes: Double(stats.cache.bytes) / 1_048_576,
+            averageArticleMilliseconds: milliseconds(stats.cache.averageFetch), hedges: stats.cache.hedges,
+            hedgeWins: stats.cache.hedgeWins, slowReads: stats.slowReads, spilled: stats.cache.spilled,
+            connections: await pool?.connectionLimit ?? 0,
+            playbackMegabitsPerSecond: stats.playbackRate.map { $0 * 8 / 1_000_000 })
+        await DiagnosticRecorder.shared.recordUsenet(
+            summary, milliseconds: milliseconds(since.duration(to: .now)))
     }
     nonisolated static func fetch(_ url: URL) async throws -> NZBDownload {
         let config = URLSessionConfiguration.ephemeral; config.urlCache = nil

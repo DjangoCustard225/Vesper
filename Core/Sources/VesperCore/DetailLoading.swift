@@ -40,6 +40,7 @@ public final class DetailLoadingController {
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var enrichmentRequestID = UUID()
     @ObservationIgnored private var seasonRequestID = UUID()
+    @ObservationIgnored private var loadedContext: String?
 
     public init(item: MediaItem, startPlayback: Bool = false, resumeRecord: WatchRecord? = nil) {
         self.item = item
@@ -66,9 +67,14 @@ public final class DetailLoadingController {
     }
 
     public func load(
+        context: String? = nil,
         metadata: @MainActor (MediaItem) async -> (MediaItem, String?),
         enrich: (@MainActor (MediaItem) async throws -> MetadataEnrichment?)? = nil
     ) async {
+        // SwiftUI restarts appearance tasks when returning from another detail page.
+        // Reuse completed data for the same provider configuration, including the episode shelf.
+        if let context, loadedContext == context { return }
+        loadedContext = nil
         generation = UUID()
         let current = generation
         loading = true
@@ -96,6 +102,9 @@ public final class DetailLoadingController {
         if season == nil { season = resumeRecord?.season }
         if season == nil { season = seasons.first(where: { $0 > 0 }) ?? seasons.first }
         if let enrich { await refreshEnrichment(using: enrich) }
+        if !Task.isCancelled, generation == current, error == nil, metadataError == nil {
+            loadedContext = context
+        }
     }
 
     public func refreshEnrichment(using fetch: @MainActor (MediaItem) async throws -> MetadataEnrichment?)

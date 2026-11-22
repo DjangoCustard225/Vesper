@@ -32,14 +32,25 @@ struct SettingsView: View {
             }
             Section("Connections") {
                 NavigationLink {
+                    SubDLSettingsView()
+                } label: {
+                    SettingsConnectionLabel(
+                        title: "SubDL", systemImage: "captions.bubble",
+                        status: store.subdlConfigured ? "Connected" : "Not connected")
+                }
+                NavigationLink {
                     UsenetSettingsView()
                 } label: {
-                    Label("Usenet", systemImage: "network")
+                    SettingsConnectionLabel(
+                        title: "Usenet", systemImage: "network",
+                        status: UsenetService.shared.provider == nil ? "Not connected" : "Connected")
                 }
                 NavigationLink {
                     AddonsView()
                 } label: {
-                    Label("Add-ons", systemImage: "puzzlepiece.extension")
+                    SettingsConnectionLabel(
+                        title: "Add-ons", systemImage: "puzzlepiece.extension",
+                        status: "\(store.addons.filter(\.isEnabled).count) enabled")
                 }
                 NavigationLink {
                     TMDBSettingsView()
@@ -55,9 +66,23 @@ struct SettingsView: View {
                         title: "TVDB", systemImage: "tv",
                         status: store.tvdbCredentials == nil ? "Not connected" : "Connected")
                 }
+                NavigationLink {
+                    MDBListSettingsView()
+                } label: {
+                    SettingsConnectionLabel(
+                        title: "MDBList", systemImage: "star.leadinghalf.filled",
+                        status: store.mdblistKey == nil ? "Not connected" : "Connected")
+                }
 
             }
             Section {
+                NavigationLink {
+                    SyncSettingsView()
+                } label: {
+                    SettingsConnectionLabel(
+                        title: "Sync", systemImage: "arrow.triangle.2.circlepath.icloud",
+                        status: store.folderSync.isEnabled ? "On" : "Off")
+                }
                 NavigationLink {
                     DataSettingsView()
                 } label: {
@@ -70,7 +95,9 @@ struct SettingsView: View {
                 }
             }
         }.appScrollEdges().navigationTitle("Settings").toolbar(.visible, for: .navigationBar)
+        // The SubDL key lives only in the keychain; re-read it whenever Settings returns.
     }
+
 }
 
 private struct SettingsConnectionLabel: View {
@@ -102,8 +129,6 @@ private struct TrackingSettingsView: View {
                 ) {
                     ForEach(TrackingService.allCases) { Text($0.title).tag($0) }
                 }
-            } footer: {
-                Text("Only the active service syncs watch history and playback.")
             }
             Section("Accounts") {
                 NavigationLink {

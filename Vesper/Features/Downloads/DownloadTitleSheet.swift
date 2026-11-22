@@ -16,10 +16,8 @@ struct DownloadTitleSheet: View {
     @State private var removalTarget: DownloadRecord?
     @State private var confirmingRemoval = false
     @State private var closingAfterRemoval = false
-    @State private var export: DownloadExportItem?
-    @State private var exporting: UUID?
-    @State private var preparingExport = false
-    @State private var exportURL: URL?
+    @State private var removingDownload = false
+    @State private var exportSession = DownloadExportSession()
     private var downloads: DownloadManager { store.downloads }
     private var records: [DownloadRecord] {
         downloads.records.filter {
@@ -41,6 +39,7 @@ struct DownloadTitleSheet: View {
         return records.first { $0.id == id }
     }
     var body: some View {
+        @Bindable var exportSession = exportSession
         NavigationStack {
             List {
                 if let record = featured {
@@ -109,8 +108,9 @@ struct DownloadTitleSheet: View {
                 in: records, keeping: selectedID ?? initialSelectedID)
         }
         .downloadedPlayback(router, knownEpisodes: records.compactMap(\.episode))
-        .sheet(item: $export, onDismiss: finishExport) { item in
-            DownloadExportSheet(url: item.url, completion: finishExport)
+        .background { DownloadExportLifetime(session: exportSession).frame(width: 0, height: 0) }
+        .sheet(item: $exportSession.item, onDismiss: exportSession.finish) { item in
+            DownloadExportSheet(url: item.url, completion: exportSession.finish)
         }
         .confirmationDialog(
             removalTarget?.phase == .completed ? "Remove this download?" : "Cancel this download?",
@@ -120,9 +120,14 @@ struct DownloadTitleSheet: View {
             Button(
                 removalTarget?.phase == .completed ? "Remove Download" : "Cancel Download", role: .destructive
             ) {
-                guard let target = removalTarget else { return }
-                downloads.requestRemove([target.id])
-                closingAfterRemoval = target.phase != .completed
+                guard let target = removalTarget, !removingDownload else { return }
+                removingDownload = true
+                Task {
+                    defer { removingDownload = false }
+                    if await downloads.removeDownloads([target.id]) {
+                        closingAfterRemoval = target.phase != .completed
+                    }
+                }
             }
         }
         .onChange(of: confirmingRemoval) { _, presented in
@@ -166,8 +171,9 @@ struct DownloadTitleSheet: View {
                 }.id(record.id)
                 Menu {
                     if record.phase == .completed {
-                        Button("Share / Export", systemImage: "square.and.arrow.up") { share(record) }
-                            .disabled(preparingExport || exporting != nil)
+                        Button("Share / Export", systemImage: "square.and.arrow.up") {
+                            exportSession.prepare(record, downloads: downloads)
+                        }.disabled(exportSession.preparing || exportSession.item != nil)
                     }
                     Button(
                         record.phase == .completed ? "Remove Download" : "Cancel Download",
@@ -178,6 +184,7 @@ struct DownloadTitleSheet: View {
                 } label: {
                     Image(systemName: "ellipsis").frame(width: 24, height: 24)
                 }.buttonStyle(.glass).buttonBorderShape(.circle).controlSize(.large)
+                    .disabled(removingDownload)
                     .frame(minWidth: Design.minimumHitTarget, minHeight: Design.minimumHitTarget)
                     .accessibilityLabel("Download options")
             }
@@ -204,21 +211,64 @@ struct DownloadTitleSheet: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func share(_ record: DownloadRecord) {
-        guard !preparingExport, exporting == nil, downloads.acquire(record.id) else { return }
-        preparingExport = true
-        Task {
-            defer { preparingExport = false }
+}
+
+/// Holds the source lease until copying finishes and the export lease until sharing ends.
+@MainActor @Observable
+private final class DownloadExportSession {
+    var item: DownloadExportItem?
+    private(set) var preparing = false
+    @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var revision = UUID()
+    @ObservationIgnored private var lease: (DownloadManager, UUID)?
+    @ObservationIgnored private var exportURL: URL?
+
+    func prepare(_ record: DownloadRecord, downloads: DownloadManager) {
+        guard task == nil, lease == nil, downloads.acquire(record.id) else { return }
+        preparing = true
+        let current = revision
+        task = Task {
+            var transferredLease = false
+            defer {
+                if !transferredLease { downloads.unprotect([record.id]) }
+                if revision == current { preparing = false; task = nil }
+            }
             do {
                 let url = try await downloads.export(record)
-                exporting = record.id; exportURL = url; export = DownloadExportItem(url: url)
-            } catch { downloads.unprotect([record.id]); downloads.error = error.localizedDescription }
+                guard !Task.isCancelled, revision == current else {
+                    downloads.finishExport(url)
+                    return
+                }
+                lease = (downloads, record.id)
+                transferredLease = true
+                exportURL = url
+                item = DownloadExportItem(url: url)
+            } catch is CancellationError {} catch {
+                if revision == current, !Task.isCancelled { downloads.error = error.localizedDescription }
+            }
         }
     }
-    private func finishExport() {
-        guard let exporting else { return }
-        if let url = exportURL { downloads.finishExport(url) }; exportURL = nil
-        downloads.unprotect([exporting]); self.exporting = nil; export = nil
+
+    func finish() {
+        revision = UUID()
+        task?.cancel(); task = nil
+        preparing = false
+        if let (downloads, id) = lease {
+            if let exportURL { downloads.finishExport(exportURL) }
+            downloads.unprotect([id])
+        }
+        lease = nil; exportURL = nil; item = nil
+    }
+}
+
+/// Presenting the share sheet must retain the lease. Removing its owner must release it.
+private struct DownloadExportLifetime: UIViewRepresentable {
+    let session: DownloadExportSession
+    func makeCoordinator() -> DownloadExportSession { session }
+    func makeUIView(context: Context) -> UIView { UIView() }
+    func updateUIView(_ view: UIView, context: Context) {}
+    static func dismantleUIView(_ view: UIView, coordinator: DownloadExportSession) {
+        coordinator.finish()
     }
 }
 private struct DownloadExportItem: Identifiable { let id = UUID(); let url: URL }

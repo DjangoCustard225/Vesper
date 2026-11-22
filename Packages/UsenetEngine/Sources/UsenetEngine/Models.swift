@@ -29,12 +29,17 @@ public enum UsenetError: Error, LocalizedError, Equatable, Sendable {
 
 public struct UsenetProvider: Codable, Sendable, Equatable {
     public static let connectionRange = 1...100
+    /// Most providers allow at least this many; the pool backs off if one refuses more.
+    public static let defaultConnections = 50
     public var host: String
     public var port: Int
     public var username: String
     public var password: String
     public var connections: Int
-    public init(host: String, port: Int = 563, username: String, password: String, connections: Int = 8) {
+    public init(
+        host: String, port: Int = 563, username: String, password: String,
+        connections: Int = defaultConnections
+    ) {
         self.host = host; self.port = port; self.username = username; self.password = password;
         self.connections = connections
     }
@@ -48,7 +53,7 @@ public struct UsenetProvider: Codable, Sendable, Equatable {
         else { throw UsenetError.providerRequired }
         return self
     }
-    public static func from(server: String, limit: Int = 8) throws -> UsenetProvider {
+    public static func from(server: String, limit: Int = defaultConnections) throws -> UsenetProvider {
         guard let parts = URLComponents(string: server), parts.scheme?.lowercased() == "nntps",
             let host = parts.host, parts.query == nil, parts.fragment == nil
         else { throw UsenetError.providerRequired }
@@ -60,13 +65,30 @@ public struct UsenetProvider: Codable, Sendable, Equatable {
     }
 }
 
+public enum UsenetPreparationStage: Sendable, Equatable {
+    case preparing, fetchingNZB, readingNZB, checkingFiles, openingVideo
+}
+
 public enum ArticlePriority: Int, Sendable { case prefetch = 0, download = 5, playback = 10 }
 public protocol ArticleSource: Sendable {
     func article(_ messageID: String, priority: ArticlePriority) async throws -> [Data]
     func promote(_ messageID: String) async
+    func decodedArticle(_ messageID: String, priority: ArticlePriority) async throws -> YEncDecodedSegment
     func stop() async
+    /// Opens up to `connections` sockets ahead of demand. Sources without sockets ignore it.
+    func warm(_ connections: Int) async
 }
-extension ArticleSource { public func promote(_ messageID: String) async {} }
+extension ArticleSource {
+    public func promote(_ messageID: String) async {}
+    public func warm(_ connections: Int) async {}
+    public func decodedArticle(_ messageID: String, priority: ArticlePriority) async throws
+        -> YEncDecodedSegment
+    {
+        let lines = try await article(messageID, priority: priority)
+        try Task.checkCancellation()
+        do { return try YEncDecoder.decode(bodyLines: lines) } catch { throw UsenetError.corrupt }
+    }
+}
 
 public struct NZBSegment: Sendable, Equatable {
     public let number: Int
@@ -127,6 +149,13 @@ public struct UsenetVideo: Sendable, Identifiable, Equatable {
         self.id = id; self.name = name; self.extents = extents; self.cipher = cipher;
         self.plainLength = plainLength
     }
+    static func isAuxiliary(_ name: String) -> Bool {
+        let name = (name as NSString).lastPathComponent
+        guard name.utf8.count <= 4096 else { return false }
+        return name.range(of: #"(?i)(?:^|[ ._-])(?:sample|proof)(?:[ ._-]|$)"#, options: .regularExpression)
+            != nil
+    }
+
     public static func isVideo(_ name: String) -> Bool {
         ["mkv", "mp4", "m4v", "mov", "webm", "avi", "ts", "m2ts", "mpg", "mpeg"].contains(
             (name as NSString).pathExtension.lowercased())

@@ -1,8 +1,14 @@
 version: 1
 bundleID: app.vesper
+product: Vesper
 infoPath: Vesper/Info.plist
+entitlementsPath: Vesper/Vesper.entitlements
 iconPath: Vesper/Assets.xcassets/AppIcon.appiconset/AppIcon.png
 resources:
   - Vesper/PrivacyInfo.xcprivacy
   - Vesper/Resources/AetherEngine-LICENSE.txt
   - Vesper/Resources/SwiftNZB-LICENSE.txt
+extensions:
+  - product: VesperWidgets
+    infoPath: VesperWidgets/Info.plist
+    entitlementsPath: VesperWidgets/VesperWidgets.entitlements

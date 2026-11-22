@@ -1,6 +1,20 @@
 import SwiftUI
 import VesperCore
 
+extension AppStore {
+    /// The next aired, unwatched episode after a show's latest watched one. Home and the widgets share it.
+    func upNextItem(for seed: UpNext.Seed) async throws -> UpNextFeedController.Item? {
+        let (metadata, _) = await metadata(for: seed.media)
+        let details = hasMetadata(for: metadata) ? try await enrichedMetadata(for: metadata) : nil
+        let media = details?.applying(to: metadata) ?? metadata
+        guard
+            let episode = try await nextEpisode(
+                for: media, after: seed.episode, knownEpisodes: media.videos ?? [], details: details)
+        else { return nil }
+        return UpNextFeedController.Item(media: media, episode: episode)
+    }
+}
+
 struct HomeUpNext: View {
     @Environment(AppStore.self) private var store
     @State private var feed = UpNextFeedController()
@@ -38,16 +52,7 @@ struct HomeUpNext: View {
         }
         .task(id: request) {
             await feed.load(request.seeds, context: request.metadata + request.addons.uuidString) { seed in
-                let (metadata, _) = await store.metadata(for: seed.media)
-                let details =
-                    store.hasMetadata(for: metadata)
-                    ? try await store.enrichedMetadata(for: metadata) : nil
-                let media = details?.applying(to: metadata) ?? metadata
-                guard
-                    let episode = try await store.nextEpisode(
-                        for: media, after: seed.episode, knownEpisodes: media.videos ?? [], details: details)
-                else { return nil }
-                return UpNextFeedController.Item(media: media, episode: episode)
+                try await store.upNextItem(for: seed)
             }
         }
         .onDisappear { feed.cancel() }

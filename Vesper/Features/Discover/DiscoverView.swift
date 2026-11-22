@@ -3,7 +3,7 @@ import VesperCore
 
 struct DiscoverView: View {
     @Environment(AppStore.self) private var store
-    @State private var heroPage: CGFloat = 0
+    @State private var heroPage = ImmersiveArtworkPage()
 
     var body: some View {
         let items = store.heroItems
@@ -25,7 +25,7 @@ struct DiscoverView: View {
                     if !items.isEmpty {
                         HeroCarousel(
                             items: items, height: heroHeight, isLandscape: isLandscape,
-                            horizontalPage: $heroPage
+                            horizontalPage: heroPage
                         )
                         .id(store.heroCatalogID)
                     }
@@ -44,7 +44,7 @@ struct DiscoverView: View {
         .appBackground()
         .toolbar(.hidden, for: .navigationBar)
         .onChange(of: store.heroCatalogID) { _, _ in
-            heroPage = 0
+            heroPage.value = 0
         }
     }
 }
@@ -199,6 +199,5 @@ struct FeaturedCard: View {
             }.padding(.horizontal, 24).padding(.bottom, 48)
         }
         .frame(height: height)
-        .modifier(MediaContextMenu(item: media))
     }
 }

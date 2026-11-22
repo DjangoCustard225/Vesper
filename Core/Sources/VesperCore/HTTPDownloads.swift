@@ -85,11 +85,7 @@ public enum HTTPDownloadPolicy {
             if let seconds = Double(retryAfter), seconds.isFinite, seconds >= 0 {
                 delay = max(delay, seconds)
             } else {
-                let formatter = DateFormatter()
-                formatter.locale = Locale(identifier: "en_US_POSIX")
-                formatter.timeZone = TimeZone(secondsFromGMT: 0)
-                formatter.dateFormat = "EEE',' dd MMM yyyy HH':'mm':'ss z"
-                if let date = formatter.date(from: retryAfter) {
+                if let date = FixedDateParser.http.date(from: retryAfter) {
                     delay = max(delay, date.timeIntervalSince(now))
                 }
             }

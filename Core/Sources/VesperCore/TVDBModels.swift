@@ -198,7 +198,60 @@ struct TVDBEpisode: Codable, Sendable {
     let aired: String?
     let runtime: Int?
 }
-struct TVDBPerson: Codable, Sendable { let id: Int; let remoteIds: [TVDBRemoteID]? }
+struct TVDBPerson: Codable, Sendable {
+    struct Biography: Codable, Sendable {
+        let biography: String?
+        let language: String?
+    }
+    struct Alias: Codable, Sendable {
+        let name: String?
+        let language: String?
+    }
+    let id: Int
+    let remoteIds: [TVDBRemoteID]?
+    let biographies: [Biography]?
+    let birth: String?
+    let death: String?
+    let birthPlace: String?
+    let aliases: [Alias]?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, remoteIds, biographies, birth, death, birthPlace, aliases
+    }
+
+    // Only the ID and remote IDs are required; a change in any biographical field must not
+    // break the TMDB person lookup that shares this record.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        remoteIds = try c.decodeIfPresent([TVDBRemoteID].self, forKey: .remoteIds)
+        biographies = try? c.decodeIfPresent([Biography].self, forKey: .biographies)
+        birth = try? c.decodeIfPresent(String.self, forKey: .birth)
+        death = try? c.decodeIfPresent(String.self, forKey: .death)
+        birthPlace = try? c.decodeIfPresent(String.self, forKey: .birthPlace)
+        aliases = try? c.decodeIfPresent([Alias].self, forKey: .aliases)
+    }
+
+    /// English details, ignoring placeholder dates such as `0000-00-00`.
+    var details: TVDBPersonDetails {
+        func clean(_ value: String?) -> String? {
+            guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+                return nil
+            }
+            return value
+        }
+        func date(_ value: String?) -> String? {
+            clean(value).flatMap { PersonProfile.date($0) == nil ? nil : String($0.prefix(10)) }
+        }
+        let english = (biographies ?? []).first { $0.language == "eng" && clean($0.biography) != nil }
+        return TVDBPersonDetails(
+            biography: PersonProfile.cleanBiography(english?.biography), birthday: date(birth),
+            deathday: date(death), placeOfBirth: clean(birthPlace),
+            aliases: (aliases ?? []).filter { $0.language == nil || $0.language == "eng" }.compactMap {
+                clean($0.name)
+            })
+    }
+}
 
 enum TVDBImage {
     static func url(_ value: String?) -> String? {

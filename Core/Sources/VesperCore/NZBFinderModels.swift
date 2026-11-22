@@ -266,12 +266,10 @@ struct NewznabItem {
             let id = [enclosure, guid, link, attributes["guid"] ?? ""].compactMap(NewznabIdentity.releaseID)
                 .first
         else { return nil }
-        let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX");
-        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss Z"
         return NZBRelease(
             id: id, title: title,
             size: (Int64(attributes["size"] ?? "") ?? length).flatMap { $0 > 0 ? $0 : nil },
-            posted: formatter.date(from: date), isSeasonPack: context?.seasonPack == true,
+            posted: FixedDateParser.rss.date(from: date), isSeasonPack: context?.seasonPack == true,
             requiresPassword: protected)
     }
 }

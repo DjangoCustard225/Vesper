@@ -72,7 +72,7 @@ struct DataSettingsView: View {
                     defer { working = false }
                     do {
                         let data = try await Task.detached { try Self.readBackup(url) }.value
-                        try store.restoreLibrary(data)
+                        try await store.restoreLibrary(data)
                         message = "Backup merged into your library."
                     } catch { message = error.localizedDescription }
                 }

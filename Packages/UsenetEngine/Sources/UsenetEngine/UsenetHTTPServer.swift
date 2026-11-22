@@ -80,6 +80,7 @@ public actor UsenetHTTPServer {
     private func handle(_ id: UUID, peer: NetworkWire) async {
         defer { peer.close(); peers[id] = nil; tasks[id] = nil }
         var started = false
+        var readingSource = false
         do {
             let request = try LocalHTTPRequest(try await headers(peer))
             guard let video, let session, request.path == path,
@@ -101,9 +102,11 @@ public actor UsenetHTTPServer {
             var cursor = range.start
             var first = Data()
             if request.method == "GET" {
+                readingSource = true
                 first = try await session.read(
                     video: video, offset: cursor, count: Int(min(256 * 1024, range.count)))
             }
+            readingSource = false
             let partial = request.headers["range"] != nil
             var response =
                 "HTTP/1.1 \(partial ? "206 Partial Content" : "200 OK")\r\nContent-Type: \(video.mimeType)\r\nAccept-Ranges: bytes\r\nContent-Length: \(range.count)\r\nCache-Control: no-store\r\nConnection: close\r\n"
@@ -112,14 +115,34 @@ public actor UsenetHTTPServer {
             try await peer.send(Data(response.utf8)); started = true
             if request.method == "HEAD" { return }
             try await peer.send(first); cursor += Int64(first.count)
-            while cursor <= range.end {
+            // Read the next chunk while the current one is being sent, so the player's socket and
+            // the article cache work at the same time. Later chunks are larger than the first,
+            // which stays small so the response starts quickly.
+            let end = range.end
+            func read(_ offset: Int64) -> Task<Data, Error> {
+                Task {
+                    try await session.read(
+                        video: video, offset: offset, count: Int(min(1024 * 1024, end - offset + 1)))
+                }
+            }
+            var upcoming = cursor <= end ? read(cursor) : nil
+            defer { upcoming?.cancel() }
+            while let current = upcoming {
                 try Task.checkCancellation()
-                let data = try await session.read(
-                    video: video, offset: cursor, count: Int(min(256 * 1024, range.end - cursor + 1)))
-                try await peer.send(data); cursor += Int64(data.count)
+                readingSource = true
+                let data = try await withTaskCancellationHandler {
+                    try await current.value
+                } onCancel: {
+                    current.cancel()
+                }
+                readingSource = false
+                cursor += Int64(data.count)
+                upcoming = cursor <= end ? read(cursor) : nil
+                try await peer.send(data)
             }
         } catch {
-            if let error = error as? UsenetError,
+            if readingSource, !Task.isCancelled, peers[id] != nil,
+                let error = error as? UsenetError,
                 [.missingArticle, .corrupt, .storage, .authentication, .timeout].contains(error)
             {
                 onFailure?(error)

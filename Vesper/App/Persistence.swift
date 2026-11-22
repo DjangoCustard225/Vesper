@@ -27,6 +27,48 @@ enum SecureStorage {
         return value
     }
 
+    /// Everything Vesper keeps in the Keychain, read with one query. Launch reads several values,
+    /// and one query is cheaper than one each.
+    struct Snapshot {
+        /// nil when the combined read failed; values are then read one at a time.
+        fileprivate let items: [String: Data]?
+
+        func load<Value>(_ key: Key<Value>) throws -> Value? {
+            guard let items else { return try SecureStorage.load(key) }
+            guard let data = items[key.account] else { return nil }
+            guard let value = try? JSONDecoder().decode(Value.self, from: data) else {
+                throw StorageError.unreadable
+            }
+            return value
+        }
+
+        /// Unknown after a failed read counts as present, so cleanup still runs.
+        func contains<Value>(_ key: Key<Value>) -> Bool { items.map { $0[key.account] != nil } ?? true }
+    }
+
+    static func snapshot() -> Snapshot {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
+            kSecReturnAttributes as String: true, kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+        ]
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return Snapshot(items: [:]) }
+        guard status == errSecSuccess, let rows = result as? [[String: Any]] else {
+            return Snapshot(items: nil)
+        }
+        var items: [String: Data] = [:]
+        for row in rows {
+            if let account = row[kSecAttrAccount as String] as? String,
+                let data = row[kSecValueData as String] as? Data
+            {
+                items[account] = data
+            }
+        }
+        return Snapshot(items: items)
+    }
+
     static func save<Value>(_ value: Value, for key: Key<Value>) throws {
         let data = try JSONEncoder().encode(value)
         let query: [String: Any] = [
@@ -61,6 +103,7 @@ extension SecureStorage.Key where Value == String {
     static var nzbfinderAPIKey: Self { Self(account: "nzbfinderAPIKey") }
 
     static var tmdbCredential: Self { Self(account: "tmdbCredential") }
+    static var mdblistKey: Self { Self(account: "mdblistKey") }
 
     static var heroCatalog: Self { Self(account: "heroCatalog") }
     static var retiredFanartCredentials: Self { Self(account: "fanartCredentials") }
@@ -135,4 +178,8 @@ extension SecureStorage.Key where Value == [UsenetProvider] {
 
 extension SecureStorage.Key where Value == SimklTokens {
     static var simklTokens: Self { Self(account: "simklTokens") }
+}
+
+extension SecureStorage.Key where Value == String {
+    static var subdlAPIKey: Self { Self(account: "subdlAPIKey") }
 }

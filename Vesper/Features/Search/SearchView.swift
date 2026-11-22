@@ -30,8 +30,8 @@ struct SearchView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.visible, for: .navigationBar)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Close search", systemImage: "xmark") { dismiss() }.labelStyle(.iconOnly)
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(role: .close) { dismiss() }
                 }
             }
             .task {

@@ -5,19 +5,21 @@
 	<key>CFBundleDisplayName</key>
 	<string>Vesper</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.51</string>
+	<string>0.5.4</string>
 	<key>CFBundleVersion</key>
-	<string>51</string>
+	<string>54</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
+		<string>fetch</string>
 		<string>processing</string>
 	</array>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>app.vesper.downloads.continued.*</string>
+		<string>app.vesper.widgets.refresh</string>
 	</array>
 	<key>NSSupportsLiveActivities</key>
 	<true/>

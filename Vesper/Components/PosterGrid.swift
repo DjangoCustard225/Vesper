@@ -9,7 +9,7 @@ struct PosterCard: View {
     var showsDownloadProgress = false
 
     private var watched: Bool { WatchProgress.supports(item) && store.isWatched(item) }
-    private var downloaded: Bool { store.downloads.completed.contains { $0.media.isSameTitle(as: item) } }
+    private var downloaded: Bool { store.downloads.hasCompletedTitle(item) }
 
     var body: some View {
         Color.clear.aspectRatio(2 / 3, contentMode: .fit)
@@ -87,8 +87,6 @@ struct MediaGrid: View {
         return ArtworkDecodeSize(width: width, height: width * 1.5, scale: displayScale)
     }
 
-    private var prefetchURLs: [URL] { prefetch.urls(items) }
-
     var body: some View {
         LazyVGrid(columns: Design.columns, alignment: .leading, spacing: 16) {
             ForEach(Array(items.enumerated()), id: \.element.key) { index, item in
@@ -108,19 +106,33 @@ struct MediaGrid: View {
                     }
                 }.buttonStyle(.plain)
                     .modifier(MediaContextMenu(item: item, onViewDetails: onViewDetails))
+                    .id(item.key)
                     .onScrollVisibilityChange(threshold: 0.01) { visible in
                         prefetch.visibility(visible, key: item.key, items: items)
                     }
                     .onAppear { if index >= items.count - 6 { onNearEnd?() } }
             }
         }
+        .scrollTargetLayout()
         .onGeometryChange(for: CGFloat.self) {
             $0.size.width
         } action: {
             availableWidth = $0
         }
-        .prefetchArtwork(decodeSize == nil ? [] : prefetchURLs, size: decodeSize)
+        .modifier(MediaGridPrefetch(prefetch: prefetch, items: items, size: decodeSize))
         .onDisappear { prefetch.reset() }
+    }
+}
+
+/// Reads the prefetch window, so a poster scrolling in or out invalidates only this modifier,
+/// not the grid's body and every poster link in it.
+private struct MediaGridPrefetch: ViewModifier {
+    let prefetch: ArtworkPrefetchState
+    let items: [MediaItem]
+    let size: ArtworkDecodeSize?
+
+    func body(content: Content) -> some View {
+        content.prefetchArtwork(size == nil ? [] : prefetch.urls(items), size: size)
     }
 }
 

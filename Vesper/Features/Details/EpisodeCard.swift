@@ -12,6 +12,8 @@ struct EpisodeShelf: View {
     @State private var position = ScrollPosition(idType: String.self, edge: .leading)
     @State private var prefetch = ArtworkPrefetchState()
     @State private var visible = false
+    @State private var positionedEpisodeID: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var artworkItems: [MediaItem] {
         episodes.map {
@@ -45,9 +47,15 @@ struct EpisodeShelf: View {
         .defaultScrollAnchor(.leading, for: .initialOffset)
         .scrollIndicators(.hidden).appScrollEdges()
         .task(id: episodes.first { $0.id == initialEpisodeID }?.id) {
-            guard let id = initialEpisodeID, episodes.contains(where: { $0.id == id }) else { return }
+            guard let id = initialEpisodeID, positionedEpisodeID != id,
+                episodes.contains(where: { $0.id == id })
+            else { return }
+            positionedEpisodeID = id
             // Position this horizontal scroll view only, keeping the surrounding detail page still.
-            position.scrollTo(id: id, anchor: .leading)
+            // A short glide shows why the row starts part-way through the season.
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.45)) {
+                position.scrollTo(id: id, anchor: .leading)
+            }
         }
         .onScrollVisibilityChange(threshold: 0.01) { visible = $0 }
         .prefetchArtwork(urls)
@@ -55,6 +63,27 @@ struct EpisodeShelf: View {
             visible = false
             prefetch.reset()
         }
+    }
+}
+
+/// Same footprint as `EpisodeShelf`, shown while a season's episodes load.
+struct EpisodeShelfPlaceholder: View {
+    @ScaledMetric(relativeTo: .body) private var cardWidth = 240.0
+    @ScaledMetric(relativeTo: .body) private var cardHeight = 248.0
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            HStack(alignment: .top, spacing: 12) {
+                ForEach(0..<4, id: \.self) { _ in
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(Design.surface.opacity(0.6))
+                        .frame(width: cardWidth, height: cardHeight)
+                }
+            }
+        }
+        .contentMargins(.horizontal, 20, for: .scrollContent)
+        .scrollIndicators(.hidden).scrollDisabled(true)
+        .accessibilityElement().accessibilityLabel("Loading episodes")
     }
 }
 

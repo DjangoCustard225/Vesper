@@ -21,9 +21,12 @@ enum Design {
 extension View {
     func accentButtonForeground() -> some View { foregroundStyle(.black) }
 
+    /// Shared scroll styling. Also hides scroll bars, which the app root does too, so sheets and
+    /// covers stay consistent however they inherit the environment.
     func appScrollEdges() -> some View {
         scrollEdgeEffectHidden(false, for: .vertical)
             .scrollEdgeEffectStyle(.soft, for: .all)
+            .scrollIndicators(.hidden)
     }
 
     func appBackground() -> some View { background(Design.background).appScrollEdges() }

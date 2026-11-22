@@ -55,7 +55,7 @@ enum NNTP {
         }
         if line.first == dot {
             // Remove exactly one leading stuffing dot.
-            return .content(Data(line.dropFirst()))
+            return .content(line.dropFirst())
         }
         return .content(line)
     }

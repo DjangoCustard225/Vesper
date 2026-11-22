@@ -20,7 +20,7 @@ public struct SimklSyncState: Codable, Sendable {
 
     public mutating func apply(_ data: Data, replacing: Bool = false) throws {
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-            root["movies"] is [Any] || root["shows"] is [Any]
+            (root.isEmpty || root["movies"] is [Any] || root["shows"] is [Any])
         else { throw SimklError.response }
         if replacing { items = [:] }
         for kind in ["movies", "shows"] {

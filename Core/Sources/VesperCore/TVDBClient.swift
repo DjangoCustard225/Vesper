@@ -292,4 +292,15 @@ public actor TVDBClient {
         else { return nil }
         return person.remoteIds?.compactMap(\.tmdbID).first
     }
+
+    /// English biography, dates and aliases for a person. Shares the cached record above.
+    public func personDetails(_ id: Int, credentials: TVDBCredentials) async throws -> TVDBPersonDetails? {
+        guard id > 0 else { return nil }
+        guard
+            let person = try await fetch(
+                TVDBPerson.self, path: "people/\(id)/extended", credentials: credentials)?.data,
+            person.id == id
+        else { return nil }
+        return person.details
+    }
 }

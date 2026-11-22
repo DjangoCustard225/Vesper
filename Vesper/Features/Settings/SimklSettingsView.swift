@@ -40,7 +40,7 @@ struct SimklSettingsView: View {
                         if let date = simkl.state.lastSyncedAt {
                             Text(date, style: .relative).foregroundStyle(.secondary)
                         } else {
-                            Text("Never").foregroundStyle(.secondary)
+                            Text(simkl.stateLoaded ? "Never" : "—").foregroundStyle(.secondary)
                         }
                     }
                     if !simkl.state.pending.isEmpty {
@@ -54,8 +54,6 @@ struct SimklSettingsView: View {
                     Toggle("Scrobble playback", isOn: $simkl.scrobbling)
                 } header: {
                     Text("Preferences")
-                } footer: {
-                    Text("Scrobbling tracks playback in Vesper’s built-in player.")
                 }
                 Section {
                     Button("Switch account") {
@@ -70,6 +68,7 @@ struct SimklSettingsView: View {
         }
         .appScrollEdges()
         .navigationTitle("SIMKL").navigationBarTitleDisplayMode(.inline)
+        .task { await simkl.loadState() }
         .sheet(isPresented: $signingIn) { SimklSignInSheet() }
         .confirmationDialog("Disconnect SIMKL?", isPresented: $disconnecting, titleVisibility: .visible) {
             Button("Disconnect", role: .destructive) { Task { await simkl.disconnect() } }
@@ -110,7 +109,7 @@ private struct SimklSignInSheet: View {
                 }
             }
             .navigationTitle("Connect SIMKL").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button(role: .close) { dismiss() } } }
         }
         .presentationDetents([.medium])
         .onAppear { store.simkl.startAuthorization() }

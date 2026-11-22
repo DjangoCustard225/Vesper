@@ -3,7 +3,6 @@ import VesperCore
 extension AppStore {
     var catalogs: [HomeCatalog] { catalogPresentation.catalogs }
     var availableCatalogs: [HomeCatalog] { catalogPresentation.availableCatalogs }
-    var homeRows: [HomeCatalogRow] { catalogPresentation.rows }
 
     func catalogTitle(_ catalog: HomeCatalog) -> String { catalogPreferences.title(for: catalog) }
 

@@ -2,12 +2,14 @@ import Foundation
 
 /// Only explicit password hints are used. Titles and ordinary filenames are never guessed as keys.
 public enum ArchivePasswords {
+    private static let hint = try? NSRegularExpression(pattern: #"\{\{(.+?)\}\}"#)
+
     public static func candidates(explicit: [String], names: [String]) -> [String] {
         var values = explicit
         for name in names.prefix(8) where name.utf8.count <= 8192 {
             var name = name.trimmingCharacters(in: .whitespacesAndNewlines)
             if name.lowercased().hasSuffix(".nzb") { name.removeLast(4) }
-            if let regex = try? NSRegularExpression(pattern: #"\{\{(.+?)\}\}"#) {
+            if let regex = hint {
                 for match in regex.matches(in: name, range: NSRange(name.startIndex..., in: name)).prefix(8) {
                     if let range = Range(match.range(at: 1), in: name) { values.append(String(name[range])) }
                 }

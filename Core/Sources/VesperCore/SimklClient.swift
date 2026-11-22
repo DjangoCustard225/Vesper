@@ -39,16 +39,19 @@ public enum SimklError: LocalizedError {
 /// Account tokens belong in Keychain. The client never persists request bodies or playback URLs.
 public actor SimklClient {
     public static let clientID = "1111418e74175b198ea5b7a66f7ef559f4dcd0af76f76ceb8d3e7aee0b3007c7"
+    private let ownsSession: Bool
     private let session: URLSession
     private let persist: @Sendable (SimklTokens?) throws -> Void
     private var tokens: SimklTokens?
     private var generation = UUID()
-    private var refresh: Task<SimklTokens, Error>?
+    private var refresh: (id: UUID, task: Task<SimklTokens, Error>)?
+    private var pendingRotation: SimklTokens?
 
     public init(
         tokens: SimklTokens? = nil, session: URLSession? = nil,
         persist: @escaping @Sendable (SimklTokens?) throws -> Void = { _ in }
     ) {
+        ownsSession = session == nil
         self.tokens = tokens
         self.persist = persist
         let configuration = URLSessionConfiguration.ephemeral
@@ -57,6 +60,8 @@ public actor SimklClient {
             session
             ?? URLSession(configuration: configuration, delegate: SimklRedirectGuard(), delegateQueue: nil)
     }
+
+    deinit { if ownsSession { session.invalidateAndCancel() } }
 
     public func beginAuthorization() async throws -> SimklDeviceCode {
         let data = try await request(
@@ -77,6 +82,8 @@ public actor SimklClient {
         guard revision == generation else { throw CancellationError() }
         try persist(value)
         tokens = value
+        // A fresh authorization supersedes any rotated pair still waiting for a storage retry.
+        pendingRotation = nil
     }
 
     /// Keep the same code alive across temporary disconnections while the user approves in Safari.
@@ -121,11 +128,14 @@ public actor SimklClient {
     }
 
     public func disconnect() throws {
+        // Drop the unsaved rotation first so a storage failure here cannot resurrect it later.
+        pendingRotation = nil
         try persist(nil)
         generation = UUID()
-        refresh?.cancel()
+        refresh?.task.cancel()
         refresh = nil
         tokens = nil
+        pendingRotation = nil
     }
 
     public func scrobble(_ event: TraktScrobbleEvent, media: MediaItem, videoID: String) async throws {
@@ -156,11 +166,22 @@ public actor SimklClient {
         let data = try await request(
             watched ? "sync/history" : "sync/history/remove", payload: payload, token: try await accessToken()
         )
-        if let result = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let missing = result["not_found"] as? [String: Any],
-            missing.values.contains(where: { ($0 as? [Any])?.isEmpty == false })
-        {
-            throw SimklError.unidentified
+        struct Counts: Decodable {
+            let movies: Int?
+            let shows: Int?
+            let episodes: Int?
+            var values: [Int] { [movies, shows, episodes].compactMap { $0 } }
+        }
+        guard let result = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            result["error"] == nil,
+            let counts = result[watched ? "added" : "deleted"] as? [String: Any],
+            let encoded = try? JSONSerialization.data(withJSONObject: counts),
+            let decoded = try? JSONDecoder().decode(Counts.self, from: encoded),
+            !decoded.values.isEmpty, decoded.values.allSatisfy({ $0 >= 0 })
+        else { throw SimklError.response }
+        if let raw = result["not_found"] {
+            guard let missing = raw as? [String: [Any]] else { throw SimklError.response }
+            if missing.values.contains(where: { !$0.isEmpty }) { throw SimklError.unidentified }
         }
     }
 
@@ -194,22 +215,34 @@ public actor SimklClient {
         if tokens.expiresAt.timeIntervalSinceNow > 60 { return tokens.accessToken }
         let revision = generation
         if refresh == nil {
-            refresh = Task {
-                try await self.exchange(["grant_type": "refresh_token", "refresh_token": tokens.refreshToken])
-            }
+            let task = Task { try await self.rotate(tokens, generation: revision) }
+            refresh = (UUID(), task)
         }
-        let value: SimklTokens
-        do { value = try await refresh!.value } catch {
-            if revision == generation { refresh = nil }
-            throw error
-        }
+        let current = refresh!
+        defer { if refresh?.id == current.id { refresh = nil } }
+        let value = try await current.task.value
+        try Task.checkCancellation()
         guard revision == generation else { throw CancellationError() }
-        if refresh != nil {
-            defer { refresh = nil }
-            try persist(value)
-            self.tokens = value
-        }
         return value.accessToken
+    }
+
+    private func rotate(_ previous: SimklTokens, generation revision: UUID) async throws -> SimklTokens {
+        let value: SimklTokens
+        if let pendingRotation {
+            value = pendingRotation
+        } else {
+            value = try await exchange([
+                "grant_type": "refresh_token", "refresh_token": previous.refreshToken,
+            ])
+        }
+        try Task.checkCancellation()
+        guard revision == generation else { throw CancellationError() }
+        // Keep the rotated pair for a storage retry; never reuse its now-retired refresh token.
+        pendingRotation = value
+        try persist(value)
+        tokens = value
+        pendingRotation = nil
+        return value
     }
 
     private func exchange(_ fields: [String: String]) async throws -> SimklTokens {

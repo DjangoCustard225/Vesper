@@ -17,6 +17,8 @@ struct DetailView: View {
     @State private var selection: SourceSelection?
     @State private var preparingEpisode = true
     @State private var episodeAbout: Episode?
+    @State private var ratings: TitleRatings?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(item: MediaItem, startPlayback: Bool = false) {
         self.item = item
@@ -57,21 +59,71 @@ struct DetailView: View {
 
     private var isLive: Bool { model.isLive }
 
+    private var toolbarDivider: some View {
+        Rectangle().fill(.primary.opacity(0.25)).frame(width: 1, height: 22)
+    }
+
+    /// "New Season", "New Series" or "New Episode" when the latest release aired recently.
+    private var releaseBadge: String? {
+        guard media.type == "series", !isLive else { return nil }
+        let now = Date()
+        let aired = ((media.videos ?? []) + model.seasonEpisodes).compactMap { episode -> (Episode, Date)? in
+            guard let date = Self.releaseDate(episode.released), date <= now else { return nil }
+            return (episode, date)
+        }
+        guard let latest = aired.max(by: { $0.1 < $1.1 }) else { return nil }
+        let age = now.timeIntervalSince(latest.1)
+        guard age < 60 * 86_400 else { return nil }
+        let season = latest.0.season ?? 0
+        let premiere = aired.first { $0.0.season == season && $0.0.episode == 1 }
+        if let premiere, now.timeIntervalSince(premiere.1) < 60 * 86_400, season > 0 {
+            return season == 1 ? "New Series" : "New Season"
+        }
+        return age < 14 * 86_400 ? "New Episode" : nil
+    }
+
+    // Parsed for every episode on each render, so reuse the (value-type, Sendable) styles.
+    private static let fractionalDate = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+    private static let wholeDate = Date.ISO8601FormatStyle()
+    private static let dayDate = Date.ISO8601FormatStyle().year().month().day()
+
+    private static func releaseDate(_ value: String?) -> Date? {
+        guard let value, !value.isEmpty else { return nil }
+        if let date = try? fractionalDate.parse(value) { return date }
+        if let date = try? wholeDate.parse(value) { return date }
+        return try? dayDate.parse(String(value.prefix(10)))
+    }
+
+    private var showsEpisodeSection: Bool {
+        !isLive && (media.type == "series" || !(media.videos ?? []).isEmpty)
+    }
+
+    /// Hold the shelf's height while episodes are on the way, so rows below it do not jump.
+    private var awaitingEpisodes: Bool {
+        episodes.isEmpty && seasonError == nil && (loading || enriching || seasonLoading)
+    }
+    private var loadingContext: String {
+        store.metadataConfigurationRevision + store.addonRevision.uuidString
+    }
+
     var body: some View {
-        ContentDetailLayout(media: displayMedia, logoURL: enrichment?.titleLogoURL) {
+        ContentDetailLayout(
+            media: displayMedia, logoURL: enrichment?.titleLogoURL, badge: releaseBadge,
+            loadingSummary: loading || enriching,
+            links: store.mdblistKey == nil
+                ? nil : TitleLinksSection(media: media, details: enrichment, ratings: ratings)
+        ) {
             playButton
         } content: {
-            if loading { ProgressView("Loading details…").frame(maxWidth: .infinity) }
-            if let error { ErrorNotice(message: error) { Task { await load() } } }
-            if enriching {
+            // Series show a placeholder shelf instead, so only other titles need this indicator.
+            if (loading || enriching) && !showsEpisodeSection {
                 ProgressView("Loading details…").font(.subheadline).frame(maxWidth: .infinity)
             }
+            if let error { ErrorNotice(message: error) { Task { await load(force: true) } } }
             if let metadataError {
                 ErrorNotice(message: metadataError) { Task { await enrich() } }
             }
-            if !isLive && (media.type == "series" || !(media.videos ?? []).isEmpty) {
-                episodeSection
-            }
+            if showsEpisodeSection { episodeSection }
             if let enrichment, enrichment.tmdbID != nil, store.tmdbCredential != nil {
                 RelatedTitlesView(details: enrichment)
             }
@@ -90,7 +142,7 @@ struct DetailView: View {
                             .frame(width: 44, height: 44)
                     }
                     .accessibilityLabel(store.contains(media) ? "Remove from library" : "Add to library")
-                    Rectangle().fill(.primary.opacity(0.25)).frame(width: 1, height: 22)
+                    toolbarDivider
                     Button {
                         guard let choice = model.defaultPlayback() else { return }
                         openSources(
@@ -112,7 +164,13 @@ struct DetailView: View {
             }
         }
         .downloadedPlayback(router, knownEpisodes: episodes)
-        .task(id: item.key + store.metadataConfigurationRevision) { await load() }
+        .task(id: item.key + loadingContext) { await load() }
+        // Scores wait for metadata so a title without an IMDb ID can still be found by TMDB ID.
+        .task(id: "\(media.id):\(enrichment?.tmdbID ?? -1):\(store.mdblistKey ?? "")") {
+            let found = await store.ratings(for: media, details: enrichment)
+            guard !Task.isCancelled else { return }
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) { ratings = found }
+        }
         .task(id: store.metadataRevision(for: [store.detailsCacheID(media)])) {
             guard enrichment != nil else { return }
             await enrich()
@@ -186,7 +244,8 @@ struct DetailView: View {
         }
     }
 
-    private func load() async {
+    private func load(force: Bool = false) async {
+        let context = force ? nil : loadingContext
         let canRefreshEarly =
             item.type == "series"
             && (MediaIdentity.validIMDb(item.id) != nil
@@ -209,10 +268,11 @@ struct DetailView: View {
         preparingEpisode = true
         if store.hasMetadata(for: item) {
             await model.load(
+                context: context,
                 metadata: { await store.metadata(for: $0) },
                 enrich: { try await store.enrichedMetadata(for: $0) })
         } else {
-            await model.load(metadata: { await store.metadata(for: $0) })
+            await model.load(context: context, metadata: { await store.metadata(for: $0) })
         }
         if !Task.isCancelled, media.type == "series" {
             if canRefreshEarly {
@@ -273,8 +333,10 @@ struct DetailView: View {
             if let failure = model.initialEpisodeError {
                 ErrorNotice(message: failure) { Task { await prepareInitialEpisode() } }
             }
-            if seasonLoading { ProgressView("Loading episodes…").frame(maxWidth: .infinity) }
             if let seasonError { ErrorNotice(message: seasonError) { Task { await loadSeason() } } }
+            if awaitingEpisodes {
+                EpisodeShelfPlaceholder().padding(.horizontal, -20)
+            }
             if episodes.isEmpty && !loading && !enriching && !seasonLoading && seasonError == nil {
                 Text("No episodes available. Connect TMDB or TVDB in Settings to load show details.")
                     .foregroundStyle(.secondary).font(.subheadline)

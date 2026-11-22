@@ -132,6 +132,16 @@ struct InstallAddonView: View {
                             "Resources", value: addon.manifest.resources.map(\.name).joined(separator: ", "))
                         LabeledContent("Catalogs", value: String(addon.manifest.catalogs.count))
                         Text(addon.manifestURL.host ?? "").font(.caption).foregroundStyle(.secondary)
+                        if AddonURL.isUnencryptedRemote(addon.manifestURL) {
+                            Label {
+                                Text(
+                                    "This add-on uses an unencrypted connection. Others on the network can read its address, including any account token in it. Use its HTTPS address if it has one."
+                                )
+                            } icon: {
+                                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
+                            }
+                            .font(.footnote)
+                        }
                         Button {
                             saving = true
                             do {

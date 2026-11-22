@@ -8,6 +8,8 @@ public actor TraktClient {
     public static let vesperClientID = "Fccb6wS0TQqlYiz4KxdyAZqt4q2jjT-sPf28K4P74dM"
     private let clientID: String
     private let transport: HTTPTransport
+    private let session: URLSession
+    private let ownsSession: Bool
     private let persistTokens: @Sendable (TraktTokens?) throws -> Void
     private var tokens: TraktTokens?
     private var pendingRotation: TraktTokens?
@@ -19,15 +21,23 @@ public actor TraktClient {
 
     public init(
         clientID: String = TraktClient.vesperClientID, tokens: TraktTokens? = nil,
-        session: URLSession = URLSession(configuration: .ephemeral),
+        session: URLSession? = nil,
         diagnostics: DiagnosticRecorder = .shared,
         persistTokens: @escaping @Sendable (TraktTokens?) throws -> Void = { _ in }
     ) {
         self.clientID = clientID
         self.tokens = tokens
         self.persistTokens = persistTokens
+        ownsSession = session == nil
+        // Requests carry the account token, so never follow a redirect with it, as the other clients do.
+        let session =
+            session
+            ?? URLSession(configuration: .ephemeral, delegate: TMDBRedirectGuard(), delegateQueue: nil)
+        self.session = session
         transport = HTTPTransport(session: session, diagnostics: diagnostics)
     }
+
+    deinit { if ownsSession { session.invalidateAndCancel() } }
 
     public func beginAuthorization() async throws -> TraktDeviceCode {
         let revision = generation

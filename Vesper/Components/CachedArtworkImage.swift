@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import ImageIO
+import CoreImage
 import VesperCore
 
 /// NSCache supports concurrent lookup; rendering never waits on the pipeline actor.
@@ -257,5 +258,83 @@ struct CachedArtworkImage<Content: View>: View {
                 if !retainsPreviousImage || phase.image == nil { phase = .failure(error) }
             }
         }
+    }
+}
+
+/// A heavily blurred copy of an artwork, rendered once from a tiny thumbnail and cached.
+/// A live `.blur` on a full-screen image is re-rendered by the GPU on every scroll frame;
+/// this is a plain bitmap, so it moves for free.
+struct BlurredArtwork: View {
+    let url: URL?
+    /// Blur radius as a fraction of the image's width.
+    var amount: CGFloat = 0.1
+    @State private var image: UIImage?
+    @State private var loadedURL: URL?
+
+    var body: some View {
+        ZStack {
+            if let image, loadedURL == url {
+                Image(uiImage: image).resizable().interpolation(.medium).scaledToFill()
+                    .transition(.opacity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task(id: url) {
+            guard let url else { image = nil; loadedURL = nil; return }
+            let key = "\(amount)|\(url.absoluteString)" as NSString
+            if let cached = BlurredArtworkCache.images.object(forKey: key) {
+                image = cached; loadedURL = url
+                return
+            }
+            // The blur starts from a 64-pixel-wide thumbnail, so decoding the full image is wasted work.
+            guard
+                let source = try? await ArtworkPipeline.shared.image(
+                    for: url, size: ArtworkDecodeSize(width: 128, height: 128, scale: 1)),
+                !Task.isCancelled
+            else {
+                return
+            }
+            let amount = amount
+            let blurred = await Task.detached(priority: .userInitiated) {
+                BlurredArtworkCache.render(source, amount: amount)
+            }.value
+            guard !Task.isCancelled, let blurred else { return }
+            BlurredArtworkCache.images.setObject(blurred, forKey: key)
+            withAnimation(.easeOut(duration: 0.2)) {
+                image = blurred; loadedURL = url
+            }
+        }
+    }
+}
+
+enum BlurredArtworkCache {
+    nonisolated(unsafe) static let images: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 24
+        return cache
+    }()
+    private static let context = CIContext(options: [.cacheIntermediates: false])
+
+    /// Shrinks to a thumbnail, then blurs it; detail lost by shrinking is invisible under the blur.
+    nonisolated static func render(_ source: UIImage, amount: CGFloat) -> UIImage? {
+        let width: CGFloat = 64
+        guard source.size.width > 0, source.size.height > 0 else { return nil }
+        let size = CGSize(width: width, height: (width * source.size.height / source.size.width).rounded())
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let thumbnail = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            source.draw(in: CGRect(origin: .zero, size: size))
+        }
+        guard let input = thumbnail.cgImage.map(CIImage.init(cgImage:)),
+            let filter = CIFilter(name: "CIGaussianBlur")
+        else { return nil }
+        // Clamp first so the edges stay opaque instead of fading to transparent.
+        filter.setValue(input.clampedToExtent(), forKey: kCIInputImageKey)
+        filter.setValue(width * amount, forKey: kCIInputRadiusKey)
+        guard let output = filter.outputImage?.cropped(to: input.extent),
+            let rendered = context.createCGImage(output, from: input.extent)
+        else { return nil }
+        return UIImage(cgImage: rendered)
     }
 }

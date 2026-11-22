@@ -127,3 +127,47 @@ int vesper_aes_decrypt(const uint8_t *key,size_t key_length,const uint8_t iv[16]
     EVP_CIPHER_CTX_free(ctx); return ok;
 #endif
 }
+
+/* CRC-32: arm64 has a dedicated instruction for this polynomial (8 bytes per step); elsewhere a
+   slicing-by-8 table processes 8 bytes per step too. Both are several times faster than a
+   byte-at-a-time table walk, which mattered when every downloaded byte is checked. */
+#if defined(__aarch64__)
+#include <arm_acle.h>
+__attribute__((target("crc")))
+uint32_t vesper_crc32_update(uint32_t state, const uint8_t *input, size_t length) {
+    while (length && ((uintptr_t)input & 7)) { state = __crc32b(state, *input++); length--; }
+    while (length >= 8) {
+        uint64_t word; memcpy(&word, input, 8);
+        state = __crc32d(state, word); input += 8; length -= 8;
+    }
+    while (length--) state = __crc32b(state, *input++);
+    return state;
+}
+#else
+static uint32_t crc_table[8][256];
+static int crc_ready = 0;
+static void crc_init(void) {
+    for (uint32_t i = 0; i < 256; i++) {
+        uint32_t c = i;
+        for (int k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
+        crc_table[0][i] = c;
+    }
+    for (uint32_t i = 0; i < 256; i++)
+        for (int t = 1; t < 8; t++)
+            crc_table[t][i] = (crc_table[t - 1][i] >> 8) ^ crc_table[0][crc_table[t - 1][i] & 0xFF];
+    __atomic_store_n(&crc_ready, 1, __ATOMIC_RELEASE);
+}
+uint32_t vesper_crc32_update(uint32_t state, const uint8_t *input, size_t length) {
+    if (!__atomic_load_n(&crc_ready, __ATOMIC_ACQUIRE)) crc_init(); /* idempotent; races only recompute */
+    while (length >= 8) {
+        uint32_t lo, hi; memcpy(&lo, input, 4); memcpy(&hi, input + 4, 4);
+        lo ^= state;
+        state = crc_table[7][lo & 0xFF] ^ crc_table[6][(lo >> 8) & 0xFF] ^ crc_table[5][(lo >> 16) & 0xFF]
+            ^ crc_table[4][lo >> 24] ^ crc_table[3][hi & 0xFF] ^ crc_table[2][(hi >> 8) & 0xFF]
+            ^ crc_table[1][(hi >> 16) & 0xFF] ^ crc_table[0][hi >> 24];
+        input += 8; length -= 8;
+    }
+    while (length--) state = crc_table[0][(state ^ *input++) & 0xFF] ^ (state >> 8);
+    return state;
+}
+#endif

@@ -8,8 +8,8 @@ struct NZBFinderSettingsView: View {
     var body: some View {
         Form {
             Section("Indexer") {
-                row(.apiKey, value: draft.apiKey.isEmpty ? "Not configured" : "••••••••")
-                row(.enabled, value: draft.enabled ? "On" : "Off")
+                CredentialRow(title: "API Key", text: $draft.apiKey, commit: commit)
+                enabledRow()
                 Toggle("Include Season Packs", isOn: $draft.seasonPacks)
                 Link("NZBFinder Account", destination: URL(string: "https://nzbfinder.ws")!)
             }
@@ -27,66 +27,38 @@ struct NZBFinderSettingsView: View {
         .navigationTitle("Configure Indexer").navigationBarTitleDisplayMode(.inline).appScrollEdges()
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
-                Button {
-                    draft.save(finish: finish)
-                } label: {
-                    HStack {
-                        Text("Save & Verify")
-                        if draft.busy { ProgressView().controlSize(.small) }
-                    }
-                }
-                .disabled(draft.busy || !draft.valid)
+                SaveVerifyButton(busy: draft.busy, disabled: !draft.valid, action: commit)
             }
         }
         .onChange(of: draft.inputs) { _, _ in draft.cancel() }
         .onDisappear { draft.cancel() }
     }
 
-    private func row(_ field: NZBFinderField, value: String) -> some View {
+    /// Saves and verifies; run by the checkmark here and in the key sheet.
+    private func commit() {
+        guard draft.valid, !draft.busy else { return }
+        draft.save(finish: finish)
+    }
+
+    private func enabledRow() -> some View {
         NavigationLink {
-            NZBFinderFieldView(draft: draft, field: field)
+            NZBFinderEnabledView(draft: draft)
         } label: {
-            LabeledContent(field.title) { Text(value).foregroundStyle(.secondary).lineLimit(1) }
+            LabeledContent("Enabled") {
+                Text(draft.enabled ? "On" : "Off").foregroundStyle(.secondary).lineLimit(1)
+            }
         }
     }
 }
 
-private enum NZBFinderField {
-    case apiKey, enabled
-    var title: String {
-        switch self {
-        case .apiKey: "API Key"
-        case .enabled: "Enabled"
-        }
-    }
-}
-
-private struct NZBFinderFieldView: View {
-    @FocusState private var isInputFocused: Bool
+private struct NZBFinderEnabledView: View {
     @Bindable var draft: NZBFinderDraft
-    let field: NZBFinderField
 
     var body: some View {
         Form {
-            Section {
-                switch field {
-                case .apiKey:
-                    SecureField("Required", text: $draft.apiKey).focused($isInputFocused).accessibilityLabel(
-                        "API Key")
-                case .enabled:
-                    Toggle("Enabled", isOn: $draft.enabled)
-                }
-            }
+            Section { Toggle("Enabled", isOn: $draft.enabled) }
         }
-        .navigationTitle(field.title).navigationBarTitleDisplayMode(.inline).appScrollEdges()
-        .textInputAutocapitalization(.never).autocorrectionDisabled()
-        .scrollDismissesKeyboard(.interactively)
-        .task {
-            guard field == .apiKey else { return }
-            await Task.yield()
-            guard !Task.isCancelled else { return }
-            isInputFocused = true
-        }
+        .navigationTitle("Enabled").navigationBarTitleDisplayMode(.inline).appScrollEdges()
         .onChange(of: draft.inputs) { _, _ in draft.cancel() }
     }
 }

@@ -23,10 +23,11 @@ public actor TMDBClient {
     private var listingCache = ExpiringCache<TMDBPage>(lifetime: 300, capacity: 100)
     private var seasonCache = ExpiringCache<TMDBSeasonResponse>(lifetime: 6 * 3600, capacity: 50)
     private var personCache = ExpiringCache<PersonFilmography>(lifetime: 6 * 3600, capacity: 50)
+    private var profileCache = ExpiringCache<PersonProfile>(lifetime: 6 * 3600, capacity: 50)
     private var genreCache = ExpiringCache<[TMDBGenre]>(lifetime: 7 * 24 * 3600, capacity: 2)
 
     public init(
-        session: URLSession? = nil, cache: ResponseCache? = nil, retryPolicy: RetryPolicy = RetryPolicy()
+        session: URLSession? = nil, cache: ResponseCache? = nil, retryPolicy: RetryPolicy = .tmdb
     ) {
         ownsSession = session == nil
         if let session {
@@ -137,6 +138,7 @@ public actor TMDBClient {
         listingCache.removeAll()
         seasonCache.removeAll()
         personCache.removeAll()
+        profileCache.removeAll()
         genreCache.removeAll()
         configuration = nil
     }
@@ -278,6 +280,30 @@ public actor TMDBClient {
 
 extension TMDBClient {
     // MARK: - People and image configuration
+
+    /// Biography, dates and external profiles for a person, cached for six hours.
+    public func personProfile(personID: Int, credential input: String) async throws -> PersonProfile {
+        guard personID > 0 else { throw TMDBError.invalidResponse }
+        let credential = try Self.normalizedCredential(input)
+        try Task.checkCancellation()
+        use(credential)
+        let key = credential + ":personProfile:\(personID)"
+        if let value = profileCache.value(for: key) { return value }
+        guard
+            let response = try await fetch(
+                TMDBPersonResponse.self, path: ["person", String(personID)],
+                query: [
+                    URLQueryItem(name: "language", value: "en-US"),
+                    URLQueryItem(name: "append_to_response", value: "external_ids"),
+                ], credential: credential),
+            response.id == personID
+        else { throw TMDBError.invalidResponse }
+        try Task.checkCancellation()
+        guard activeCredential == credential else { throw CancellationError() }
+        let profile = response.profile
+        profileCache.insert(profile, for: key)
+        return profile
+    }
 
     public func filmography(personID: Int, credential input: String, refresh: Bool = false) async throws
         -> PersonFilmography

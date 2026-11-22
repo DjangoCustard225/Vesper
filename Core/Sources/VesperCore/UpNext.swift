@@ -121,11 +121,17 @@ import Foundation
 
     private static func hasAired(_ episode: Episode, now: Date) -> Bool {
         guard let value = episode.released, !value.isEmpty else { return true }
-        if let date = TraktDates.parse(value) { return date <= now }
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withFullDate]
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        guard value.count == 10, let date = formatter.date(from: value) else { return false }
+        guard let date = releaseDate(of: episode) else { return false }
         return date <= now
     }
+
+    /// The episode's air date, from a full timestamp or a "yyyy-MM-dd" day.
+    public static func releaseDate(of episode: Episode) -> Date? {
+        guard let value = episode.released, !value.isEmpty else { return nil }
+        if let date = TraktDates.parse(value) { return date }
+        guard value.count == 10 else { return nil }
+        return try? dayDate.parse(value)
+    }
+
+    private static let dayDate = Date.ISO8601FormatStyle().year().month().day()
 }

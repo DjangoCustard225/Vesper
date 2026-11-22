@@ -4,8 +4,30 @@ import UsenetEngine
 
 enum StreamPickerIntent { case playback, download }
 
+@MainActor @Observable private final class UsenetLaunchStatus {
+    var active = false
+    /// Mirrors the picker's launch task so it can be cancelled when the picker is torn down.
+    @ObservationIgnored var task: Task<Void, Never>?
+}
+
+/// `onDisappear` also fires while the preparation cover hides the picker, so it cannot tell
+/// "covered" from "gone". This view is only dismantled when the picker itself is removed.
+private struct LaunchLifetime: UIViewRepresentable {
+    let status: UsenetLaunchStatus
+    func makeCoordinator() -> UsenetLaunchStatus { status }
+    func makeUIView(context: Context) -> UIView { UIView() }
+    func updateUIView(_ view: UIView, context: Context) {}
+    static func dismantleUIView(_ view: UIView, coordinator: UsenetLaunchStatus) {
+        coordinator.task?.cancel()
+        coordinator.task = nil
+    }
+}
+
 struct StreamPickerView: View {
+    @State private var showingPreparation = false
+    @State private var preparationPresented = false
     @Environment(AppStore.self) private var store
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     let media: MediaItem
@@ -16,11 +38,6 @@ struct StreamPickerView: View {
     @State private var indexer = NZBFinderSearchController()
     @State private var packs = NZBFinderSearchController()
     private var nzbfinder: NZBFinderService { .shared }
-    private var result: StreamResults {
-        StreamResults(
-            options: model.result.options + indexerReleases.map(\.streamOption),
-            failures: model.result.failures)
-    }
     private var indexerReleases: [NZBRelease] {
         var seen = Set<String>()
         return (indexer.releases + packs.releases).filter { seen.insert($0.id).inserted }
@@ -34,14 +51,20 @@ struct StreamPickerView: View {
             season: season, episode: number, airDate: episode.released.map { String($0.prefix(10)) })
     }
     @State private var error: String?
+    @State private var query = ""
     @State private var fullName: SourceName?
     private struct SourceName: Identifiable {
         let id = UUID()
         let value: String
     }
     @State private var launchTask: Task<Void, Never>?
+    @State private var launchRevision = UUID()
     @State private var launching = false
-    @State private var launchingUsenet = false
+    @State private var launchStatus = UsenetLaunchStatus()
+    private var launchingUsenet: Bool {
+        get { launchStatus.active }
+        nonmutating set { launchStatus.active = newValue }
+    }
     @State private var playbackRequest: PlaybackRequest?
     @State private var playbackOption: StreamOption?
     @State private var downloadRouter = DownloadPlaybackRouter()
@@ -67,56 +90,66 @@ struct StreamPickerView: View {
 
     var body: some View {
         NavigationStack {
-            sources.navigationTitle(intent == .download ? "Choose a download" : "Choose a stream")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
-                .task(id: video.id + store.addonRevision.uuidString) { await load() }
-                .task(id: video.id + nzbfinder.revision.uuidString) { await loadNZBFinder() }
-                .onChange(of: store.addonRevision) { _, _ in launchTask?.cancel() }
-                .onDisappear {
-                    model.cancel()
-                    indexer.cancel(); packs.cancel()
-                    launchTask?.cancel()
+            sources.accessibilityHidden(launchingUsenet || usenet.preparing).navigationTitle(
+                intent == .download ? "Choose a download" : "Choose a stream"
+            )
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(launchingUsenet || usenet.preparing ? .hidden : .visible, for: .navigationBar)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button(role: .close) { dismiss() } } }
+            .task(id: video.id + store.addonRevision.uuidString) { await load() }
+            .task(id: video.id + nzbfinder.revision.uuidString) { await loadNZBFinder() }
+            .onChange(of: store.addonRevision) { _, _ in launchTask?.cancel() }
+            .onChange(of: video.id) { _, _ in query = "" }
+            .onDisappear {
+                model.cancel()
+                indexer.cancel(); packs.cancel()
+                if !preparationPresented { launchTask?.cancel() }
+            }
+            .background {
+                BuiltInPlayerPresentation(
+                    request: $playbackRequest, gesturePreferences: store.playerGestures,
+                    players: store.availablePlayers,
+                    onDismiss: finishPlayback
+                ) { player in
+                    pendingHandoff = .player(player)
+                    playbackRequest = nil
                 }
-                .background {
-                    BuiltInPlayerPresentation(
-                        request: $playbackRequest, gesturePreferences: store.playerGestures,
-                        players: store.availablePlayers,
-                        onDismiss: finishPlayback
-                    ) { player in
-                        pendingHandoff = .player(player)
-                        playbackRequest = nil
-                    }
-                }
-                .alert(
-                    intent == .download ? "Unable to download" : "Unable to play",
-                    isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })
-                ) {
-                    Button("OK") { error = nil }
-                } message: {
-                    Text(error ?? "")
-                }
-        }
-        .overlay {
-            if launchingUsenet || usenet.preparing {
-                ZStack {
-                    Color.black.opacity(0.35).ignoresSafeArea()
-                    VStack(spacing: 18) {
-                        ProgressView("Preparing stream…")
-                        Button("Cancel") {
-                            launchingUsenet = false
-                            launchTask?.cancel()
-                            usenet.cancel()
-                        }.buttonStyle(.glass)
-                    }
-                    .padding(24)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 24))
-                }
-                .accessibilityAddTraits(.isModal)
+            }
+            .alert(
+                intent == .download ? "Unable to download" : "Unable to play",
+                isPresented: Binding(
+                    get: { error != nil && !preparationPresented }, set: { if !$0 { error = nil } })
+            ) {
+                Button("OK") { error = nil }
+            } message: {
+                Text(error ?? "")
             }
         }
+        .onChange(of: launchingUsenet || usenet.preparing) { _, preparing in
+            if preparing { preparationPresented = true }
+            showingPreparation = preparing
+        }
+        .background {
+            UsenetPreparationScreen(
+                isPresented: showingPreparation,
+                isActive: {
+                    let preparing = usenet.preparing
+                    return launchingUsenet || preparing
+                },
+                currentStage: { usenet.preparing ? usenet.stage : .preparing },
+                content: UsenetPreparationView(
+                    title: media.name, subtitle: video.title,
+                    poster: media.poster, backdrop: media.background,
+                    stage: usenet.preparing ? usenet.stage : .preparing, cancel: cancelUsenetPreparation
+                ), onDismiss: { if preparationPresented { preparationPresented = false } })
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: launchingUsenet || usenet.preparing)
+        .background { LaunchLifetime(status: launchStatus).frame(width: 0, height: 0) }
         .downloadedPlayback(downloadRouter, knownEpisodes: episodes)
-        .usenetPlayback(usenet, showsErrorAlert: false, onDismiss: finishPlayback)
+        .usenetPlayback(
+            usenet, showsErrorAlert: false, presentationReady: !preparationPresented,
+            onDismiss: finishPlayback
+        )
         .sheet(item: $fullName) { name in
             ScrollView {
                 Text(name.value).font(.body).textSelection(.enabled)
@@ -127,25 +160,21 @@ struct StreamPickerView: View {
     }
 
     private var sources: some View {
-        @Bindable var store = store
+        // Built once per update; each list below reads these instead of rebuilding them.
+        let releases = indexerReleases
+        let result = StreamResults(
+            options: model.result.options + releases.map(\.streamOption), failures: model.result.failures)
+        let options = intent == .download ? result.options.filter(downloadable) : result.options
+        let visible = Self.matching(options, query: query)
+        let saved = store.downloads.records.filter {
+            $0.videoID == video.id && $0.media.isSameTitle(as: media)
+        }
         return SourceResultsScrollView {
             VStack(alignment: .leading, spacing: 6) {
                 Text(media.name).font(.title3.bold())
                 if let title = video.title { Text(title).font(.subheadline).foregroundStyle(.secondary) }
             }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 10)
-            if intent == .playback {
-                HStack {
-                    Text("Player").font(.headline)
-                    Spacer()
-                    Picker("Player", selection: $store.preferredPlayer) {
-                        ForEach(store.availablePlayers) { Text($0.title).tag($0) }
-                    }.pickerStyle(.menu).labelsHidden()
-                }.padding(.horizontal, 14).padding(.vertical, 8)
-                    .background(Color(white: 0.08), in: RoundedRectangle(cornerRadius: 22))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 22).strokeBorder(.white.opacity(0.22), lineWidth: 1)
-                    }
-            }
+            if !options.isEmpty || !query.isEmpty { searchField }
             if let error = usenet.error { ErrorNotice(message: error) }
             if model.loading {
                 ProgressView("Finding streams…").frame(maxWidth: .infinity).padding(.vertical, 30)
@@ -167,7 +196,7 @@ struct StreamPickerView: View {
                     }
                 }.buttonStyle(.glass)
             }
-            if indexer.hasSearched, !indexer.loading, !packs.loading, indexerReleases.isEmpty,
+            if indexer.hasSearched, !indexer.loading, !packs.loading, releases.isEmpty,
                 indexer.error == nil, packs.error == nil
             {
                 Text("NZBFinder found no matching releases.").font(.subheadline).foregroundStyle(.secondary)
@@ -195,17 +224,21 @@ struct StreamPickerView: View {
                         maxWidth: .infinity)
                 }
             }
-            if !options.isEmpty {
+            if !options.isEmpty && visible.isEmpty {
+                Text("No sources match “\(query.trimmingCharacters(in: .whitespacesAndNewlines))”.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity).padding(.vertical, 24)
+            }
+            if !visible.isEmpty {
                 Text("Available sources").font(.headline).padding(.horizontal, 2).padding(.top, 12).padding(
                     .bottom, 4)
-                ForEach(options) { option in
+                ForEach(visible) { option in
                     SourceResultCard(
                         option: option,
                         action: { if intent == .download { download(option) } else { play(option) } },
                         isDownloadMode: intent == .download,
-                        isInDownloads: store.downloads.records.contains {
-                            $0.media.isSameTitle(as: media) && $0.videoID == video.id
-                                && StreamPolicy.refreshedMatch(for: $0.source, in: [option.source]) != nil
+                        isInDownloads: saved.contains {
+                            StreamPolicy.refreshedMatch(for: $0.source, in: [option.source]) != nil
                         }
                     )
                     .disabled(launching)
@@ -253,8 +286,35 @@ struct StreamPickerView: View {
         return DownloadPolicy.supportsUsenet(option.source, live: live)
             || (try? DownloadPolicy.url(for: option.source, live: live)) != nil
     }
-    private var options: [StreamOption] {
-        intent == .download ? result.options.filter(downloadable) : result.options
+    /// Sources whose name, details or add-on contain every word typed in the search field.
+    private static func matching(_ options: [StreamOption], query: String) -> [StreamOption] {
+        let terms = query.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard !terms.isEmpty else { return options }
+        return options.filter { option in
+            let text = [
+                option.displayName, option.source.label,
+                option.source.description ?? option.source.title ?? "",
+                option.addonName,
+            ].joined(separator: " ")
+            return terms.allSatisfy {
+                text.range(of: $0, options: [.caseInsensitive, .diacriticInsensitive]) != nil
+            }
+        }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+            TextField("Search sources", text: $query)
+                .textFieldStyle(.plain).textInputAutocapitalization(.never).autocorrectionDisabled()
+                .submitLabel(.search)
+            if !query.isEmpty {
+                Button("Clear search", systemImage: "xmark.circle.fill") { query = "" }
+                    .labelStyle(.iconOnly).foregroundStyle(.secondary).buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .glassEffect(.regular, in: Capsule())
     }
     private func download(_ option: StreamOption) {
         guard !launching else { return }
@@ -263,7 +323,7 @@ struct StreamPickerView: View {
             defer { launching = false }
             do {
                 try await store.downloads.enqueue(media: media, video: video, option: option)
-                if !store.contains(media) { store.toggleLibrary(media) }
+                store.addToLibrary(media)
                 dismiss()
             } catch {
                 self.error = error.localizedDescription
@@ -299,20 +359,33 @@ struct StreamPickerView: View {
         } catch { indexer.clear(error: error.localizedDescription); packs.clear() }
     }
 
+    private func cancelUsenetPreparation() {
+        launchRevision = UUID()
+        launchTask?.cancel()
+        launchTask = nil
+        launching = false
+        launchingUsenet = false
+        usenet.cancel()
+    }
+
     private func play(_ option: StreamOption, player: VideoPlayer? = nil) {
         guard !launching else { return }
         launching = true
+        let revision = UUID()
+        launchRevision = revision
         launchingUsenet = option.nzbRelease != nil || option.source.nzbUrl != nil
         launchTask = Task {
-            defer { launching = false; launchingUsenet = false }
+            defer {
+                if launchRevision == revision { launching = false; launchingUsenet = false }
+            }
             do {
                 if let release = option.nzbRelease {
                     playbackOption = option
                     await usenet.prepareNZB(
                         name: release.title, episodeTarget: episodeTarget,
                         fetch: { try await nzbfinder.nzb(release) }
-                    ) { url, _ in
-                        makePlaybackRequest(url)
+                    ) { url, file in
+                        makeUsenetPlaybackRequest(url, file: file)
                     }
                     return
                 }
@@ -320,17 +393,19 @@ struct StreamPickerView: View {
                 try Task.checkCancellation()
                 if case .usenet = try StreamResolver.resolve(source) {
                     playbackOption = option
-                    await usenet.prepare(source: source, episodeTarget: episodeTarget) { url, _ in
-                        makePlaybackRequest(url)
+                    await usenet.prepare(source: source, episodeTarget: episodeTarget) { url, file in
+                        makeUsenetPlaybackRequest(url, file: file)
                     }
                 } else {
                     open(source, option: option, player: player)
                 }
             } catch is CancellationError {} catch {
+                guard !Task.isCancelled, launchRevision == revision else { return }
                 self.error = error.localizedDescription
                 if error is PlaybackError { await load() }
             }
         }
+        launchStatus.task = launchTask
     }
 
     private func open(_ source: StreamSource, option: StreamOption, player: VideoPlayer?) {
@@ -364,13 +439,24 @@ struct StreamPickerView: View {
             }
         } catch { self.error = error.localizedDescription }
     }
-    private func makePlaybackRequest(_ url: URL) -> PlaybackRequest {
-        PlaybackRequest(
+    private func makeUsenetPlaybackRequest(_ url: URL, file: UsenetVideo) -> PlaybackRequest {
+        guard media.type == "series" else { return makePlaybackRequest(url) }
+        if let selected = video.matchingUsenetFile(file, episodes: episodes) {
+            return makePlaybackRequest(url, selection: selected)
+        }
+        // Unknown filenames remain playable without guessing resume, subtitle or tracking IDs.
+        return PlaybackRequest(url: url, title: media.name, subtitle: file.name)
+    }
+
+    private func makePlaybackRequest(_ url: URL, selection: VideoSelection? = nil) -> PlaybackRequest {
+        let video = selection ?? self.video
+        return PlaybackRequest(
             url: url, title: media.name, subtitle: video.title,
             artworkURL: (media.poster ?? video.episode?.thumbnail ?? media.background).flatMap {
                 try? AddonURL.http($0)
             },
             isLive: media.behaviorHints?.isLive == true || media.type == "tv",
+            subtitleMedia: media, subtitleVideoID: video.id,
             resumeSeconds: store.watchProgress.resumePosition(for: media, videoID: video.id),
             onProgress: { [store, media, video] update in
                 store.recordPlayback(media: media, video: video, update: update)

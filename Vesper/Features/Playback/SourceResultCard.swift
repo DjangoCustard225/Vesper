@@ -27,7 +27,7 @@ struct SourceResultCard: View {
     }
 
     private var transport: String {
-        if option.source.nzbUrl != nil { return "Usenet · AVPlayer" }
+        if option.source.nzbUrl != nil { return "Usenet" }
         if option.source.infoHash != nil { return "Torrent" }
         if option.source.externalUrl != nil || option.source.ytId != nil { return "External" }
         return "Stream"
@@ -62,11 +62,7 @@ struct SourceResultCard: View {
                     Text("In Downloads").font(.caption).foregroundStyle(.secondary)
                 }
             }
-            .multilineTextAlignment(.leading).padding(.vertical, 16).padding(.horizontal, 14)
-            .frame(maxWidth: .infinity, minHeight: Design.minimumHitTarget, alignment: .leading)
-            .background(Color(white: 0.08), in: RoundedRectangle(cornerRadius: 22))
-            .overlay { RoundedRectangle(cornerRadius: 22).strokeBorder(.white.opacity(0.22), lineWidth: 1) }
-            .contentShape(RoundedRectangle(cornerRadius: 22))
+            .modifier(SourceCardSurface())
         }.buttonStyle(.plain)
             .accessibilityLabel(
                 [title, option.source.label, option.source.detail, option.addonName].joined(separator: ", ")

@@ -15,6 +15,9 @@ final class SimklStore {
         didSet { UserDefaults.standard.set(syncWatched, forKey: "simklSyncWatched") }
     }
     @ObservationIgnored private let client: SimklClient
+    @ObservationIgnored private let storage: SimklSyncStorage
+    @ObservationIgnored private var stateWork: Task<Void, Error>?
+    private(set) var stateLoaded = false
     @ObservationIgnored private var revision = UUID()
     @ObservationIgnored private var delivery: Task<Void, Never>?
 
@@ -27,11 +30,7 @@ final class SimklStore {
         }
         isConnected = tokens != nil
         let url = LibraryStorage.url.deletingLastPathComponent().appendingPathComponent("simkl-sync.json")
-        if FileManager.default.fileExists(atPath: url.path) {
-            do {
-                state = try SimklSyncRepository(url: url).load()
-            } catch { writable = false; self.error = error.localizedDescription }
-        }
+        storage = SimklSyncStorage(repository: SimklSyncRepository(url: url))
         client = SimklClient(tokens: tokens) { value in
             if let value {
                 try SecureStorage.save(value, for: .simklTokens)
@@ -50,9 +49,6 @@ final class SimklStore {
     @ObservationIgnored private var authorizationTask: Task<Void, Never>?
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var nextSync = Date.distantPast
-    private var stateURL: URL {
-        LibraryStorage.url.deletingLastPathComponent().appendingPathComponent("simkl-sync.json")
-    }
     var enabled: Bool { TrackingService.current == .simkl }
 
     func suspendSync() { retryTask?.cancel(); syncTask?.cancel() }
@@ -64,87 +60,83 @@ final class SimklStore {
         delivery?.cancel()
     }
 
-    private func save(_ proposed: SimklSyncState) throws {
-        guard writable else { throw SimklError.response }
-        try FileManager.default.createDirectory(
-            at: stateURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try SimklSyncRepository(url: stateURL).save(proposed)
-        state = proposed
+    /// Settings can read saved sync information without activating the service or contacting SIMKL.
+    func loadState() async {
+        let current = revision
+        do { try await updateState().value } catch is CancellationError {} catch {
+            guard revision == current else { return }
+            self.error = error.localizedDescription
+        }
+    }
+
+    /// Each mutation starts from the last durable state and holds its turn across disk awaits.
+    private func updateState(
+        _ change: (@MainActor (inout SimklSyncState) throws -> Void)? = nil
+    ) -> Task<Void, Error> {
+        let previous = stateWork, current = revision
+        let task = Task { @MainActor in
+            _ = try? await previous?.value
+            guard self.revision == current else { throw CancellationError() }
+            guard self.writable else { throw SimklError.response }
+            if !self.stateLoaded {
+                let loaded: SimklSyncState
+                do { loaded = try await self.storage.load() } catch { self.writable = false; throw error }
+                guard self.revision == current else { throw CancellationError() }
+                self.state = loaded
+                self.stateLoaded = true
+            }
+            guard let change else { return }
+            var proposed = self.state
+            try change(&proposed)
+            try await self.storage.save(proposed)
+            guard self.revision == current else { throw CancellationError() }
+            self.state = proposed
+        }
+        stateWork = task
+        return task
     }
 
     func synchronize(history: WatchProgressController, force: Bool = false) async {
         guard enabled, isConnected, writable, syncWatched, force || Date() >= nextSync else { return }
         if let syncTask { await syncTask.value; return }
         let current = revision
-        let task = Task {
+        let task = Task { [self] in
             isSyncing = true
             defer { isSyncing = false; syncTask = nil }
             do {
                 await delivery?.value
+                try await updateState().value
                 try Task.checkCancellation()
                 if !checkedAccount {
                     let id = try await client.accountID()
                     guard revision == current, enabled else { return }
-                    if let old = state.accountID, old != id { try save(SimklSyncState()) }
-                    var proposed = state; proposed.accountID = id; try save(proposed)
+                    try await updateState { proposed in
+                        if let old = proposed.accountID, old != id { proposed = SimklSyncState() }
+                        proposed.accountID = id
+                    }.value
+                    guard revision == current, enabled else { return }
                     checkedAccount = true
                 }
-                while let change = state.pending.first {
-                    try Task.checkCancellation()
-                    guard enabled, revision == current else { return }
-                    try await client.setWatched(
-                        change.action != .unwatched, media: change.media, videoID: change.videoID)
-                    guard enabled, revision == current else { return }
-                    var proposed = state; proposed.pending.removeAll { $0.id == change.id };
-                    try save(proposed)
-                }
-                let activities = try await client.get("sync/activities")
-                let root = try JSONSerialization.jsonObject(with: activities) as? [String: Any] ?? [:]
-                let old =
-                    state.activities.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-                    ?? [:]
-                guard let timestamp = root["all"] as? String else { throw SimklError.response }
-                var proposed = state
-                if state.activities == nil || (old["all"] as? String) != timestamp {
-                    for kind in ["shows", "movies"] {
-                        var query = [
-                            URLQueryItem(name: "extended", value: "full"),
-                            URLQueryItem(name: "episode_watched_at", value: "yes"),
-                            URLQueryItem(name: "include_all_episodes", value: "yes"),
-                        ]
-                        if let previous = old["all"] as? String {
-                            query.append(URLQueryItem(name: "date_from", value: previous))
-                        }
-                        let data = try await client.get("sync/all-items/" + kind, query: query)
-                        try proposed.apply(data)
-                    }
-                    if state.activities != nil
-                        && String(describing: root["removed_from_list"])
-                            != String(describing: old["removed_from_list"])
-                    {
-                        var retained = SimklSyncState()
-                        for kind in ["shows", "movies"] {
-                            try retained.apply(
-                                await client.get(
-                                    "sync/all-items/" + kind,
-                                    query: [URLQueryItem(name: "extended", value: "simkl_ids_only")]))
-                        }
-                        proposed.items = proposed.items.filter { retained.items[$0.key] != nil }
-                    }
-                }
-                guard enabled, revision == current else { return }
+                let unmatched = try await flushPending(revision: current)
+                let update = try await client.historyUpdates(from: state)
+                try Task.checkCancellation()
+                try await updateState().value
+                guard enabled, syncWatched, revision == current else { return }
                 guard
                     await history.mergeSimkl(
-                        try proposed.entries(), pending: state.pending,
-                        shouldApply: { self.enabled && self.revision == current })
+                        update.entries, pending: state.pending,
+                        shouldApply: { self.enabled && self.syncWatched && self.revision == current })
                 else { throw SimklError.response }
-                guard enabled, revision == current else { return }
-                proposed.pending = state.pending
-                proposed.activities = activities
-                proposed.lastSyncedAt = Date()
-                try save(proposed)
+                guard enabled, syncWatched, revision == current else { return }
+                try Task.checkCancellation()
+                try await updateState { proposed in
+                    proposed.items = update.state.items
+                    proposed.activities = update.activities
+                    proposed.lastSyncedAt = Date()
+                }.value
+                guard enabled, syncWatched, revision == current else { return }
                 nextSync = Date().addingTimeInterval(60)
-                error = nil
+                error = unmatched ? SimklError.unidentified.localizedDescription : nil
             } catch is CancellationError {} catch {
                 guard revision == current else { return }
                 self.error = error.localizedDescription
@@ -161,6 +153,28 @@ final class SimklStore {
         }
         syncTask = task
         await task.value
+    }
+
+    /// Keep unmatched changes durable without blocking other changes or incoming watch history.
+    private func flushPending(revision current: UUID) async throws -> Bool {
+        var unmatched = Set<UUID>()
+        while let change = state.pending.first(where: { !unmatched.contains($0.id) }) {
+            try Task.checkCancellation()
+            guard enabled, syncWatched, revision == current else { throw CancellationError() }
+            do {
+                try await client.setWatched(
+                    change.action != .unwatched, media: change.media, videoID: change.videoID)
+            } catch SimklError.unidentified {
+                unmatched.insert(change.id)
+                continue
+            }
+            try Task.checkCancellation()
+            guard enabled, syncWatched, revision == current else { throw CancellationError() }
+            try await updateState { $0.pending.removeAll { $0.id == change.id } }.value
+        }
+        try Task.checkCancellation()
+        guard enabled, syncWatched, revision == current else { throw CancellationError() }
+        return !unmatched.isEmpty
     }
 
     func startAuthorization() {
@@ -182,6 +196,7 @@ final class SimklStore {
         error = nil
         defer { isAuthorizing = false; deviceCode = nil }
         do {
+            try await updateState().value
             let code = try await client.beginAuthorization()
             try Task.checkCancellation()
             guard revision == current else { return }
@@ -196,13 +211,18 @@ final class SimklStore {
     func disconnect() async {
         cancelAuthorization()
         revision = UUID()
+        retryTask?.cancel(); retryTask = nil
+        syncTask?.cancel()
         delivery?.cancel()
         delivery = nil
+        await syncTask?.value
+        syncTask = nil
         do {
             try await client.disconnect()
             isConnected = false
             checkedAccount = false
-            try save(SimklSyncState())
+            nextSync = .distantPast
+            try await updateState { $0 = SimklSyncState() }.value
             error = nil
         } catch { self.error = error.localizedDescription }
     }
@@ -223,12 +243,15 @@ final class SimklStore {
 
     func setWatched(_ watched: Bool, media: MediaItem, videoID: String?) {
         guard enabled, isConnected, syncWatched else { return }
-        do {
-            var proposed = state
+        let work = updateState { proposed in
             try proposed.enqueue(
                 TraktHistoryChange(media: media, videoID: videoID, action: watched ? .watched : .unwatched))
-            try save(proposed)
-        } catch { self.error = error.localizedDescription }
+        }
+        Task {
+            do { try await work.value } catch is CancellationError {} catch {
+                self.error = error.localizedDescription
+            }
+        }
     }
 
     private func enqueue(_ send: @escaping @MainActor () async throws -> Void) {

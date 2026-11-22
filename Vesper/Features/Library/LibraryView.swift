@@ -14,10 +14,11 @@ struct LibraryView: View {
     }
     private var allItems: [MediaItem] {
         let records = records
+        let downloads = TitleIndex(records, media: \.media)
         return LibraryDownloadPresentation.titles(
             saved: store.library.items, downloads: records, offlineOnly: offlineOnly
         ).map { item in
-            guard let record = records.first(where: { $0.media.isSameTitle(as: item) }),
+            guard let record = downloads.first(matching: item),
                 let poster = store.downloads.localArtwork(item.poster ?? record.media.poster, record: record)
             else { return item }
             var local = item; local.poster = poster.absoluteString; return local

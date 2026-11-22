@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import CUsenetCrypto
 
 public struct CRC32: Sendable {
     // Precomputed lookup table (256 entries), built once.
@@ -35,13 +36,10 @@ public struct CRC32: Sendable {
     }
 
     public mutating func update(_ data: Data) {
-        data.withUnsafeBytes { raw in
-            var c = state
-            let table = Self.table
-            for b in raw {
-                c = table[Int((c ^ UInt32(b)) & 0xFF)] ^ (c >> 8)
-            }
-            state = c
+        let current = state
+        state = data.withUnsafeBytes { raw in
+            guard let base = raw.bindMemory(to: UInt8.self).baseAddress, raw.count > 0 else { return current }
+            return vesper_crc32_update(current, base, raw.count)
         }
     }
 

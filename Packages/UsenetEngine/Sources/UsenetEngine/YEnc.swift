@@ -57,15 +57,15 @@ public enum YEncDecoder {
         var pcrc: UInt32?
         var fileCRC: UInt32?
 
-        // Decode into a plain byte array (per-byte Data.append pays a Foundation call on every
-        // downloaded byte); wrap it in Data once at the end.
-        var out = [UInt8]()
+        // Decode straight into one preallocated buffer: decoded output is never longer than the
+        // encoded input, so each byte is a plain store instead of an append with capacity checks.
         var capacity = 0
         for line in bodyLines {
             guard line.count <= 8 * 1024 * 1024 - capacity else { throw YEncError.invalidStructure }
             capacity += line.count
         }
-        out.reserveCapacity(capacity)
+        var out = [UInt8](repeating: 0, count: capacity)
+        var written = 0
         var escapePending = false
 
         for line in bodyLines {
@@ -93,19 +93,26 @@ public enum YEncDecoder {
             }
             guard sawBegin else { continue }
             // Data line — decode bytes.
-            line.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
-                for b in raw {
-                    if escapePending {
-                        out.append(b &- 106)
-                        escapePending = false
-                    } else if b == escape {
-                        escapePending = true
-                    } else {
-                        out.append(b &- 42)
+            out.withUnsafeMutableBufferPointer { destination in
+                line.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+                    var index = written
+                    for b in raw {
+                        if escapePending {
+                            destination[index] = b &- 106
+                            index += 1
+                            escapePending = false
+                        } else if b == escape {
+                            escapePending = true
+                        } else {
+                            destination[index] = b &- 42
+                            index += 1
+                        }
                     }
+                    written = index
                 }
             }
         }
+        out.removeSubrange(written...)
 
         guard sawBegin else { throw YEncError.missingBeginHeader }
         guard sawEnd, !escapePending, !out.isEmpty, declaredPartSize == out.count,

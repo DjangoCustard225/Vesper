@@ -10,6 +10,8 @@ import struct
 import sys
 import zipfile
 
+from AdHocSign import signed_entitlements
+
 
 class LinkeditAlignmentError(ValueError):
     """The loader cannot use a misaligned 64-bit LINKEDIT table."""
@@ -174,6 +176,29 @@ def verify(ipa, root, *, unstripped=False, write_checksum=True, native_icon=Fals
             primary = actual.get("CFBundleIcons", {}).get("CFBundlePrimaryIcon", {})
             if primary.get("CFBundleIconName") != "VesperIcon" or prefix + "Assets.car" not in names:
                 raise ValueError("The native clear/tinted app icon was not compiled or selected")
+        bundles = [(prefix, actual, root / "Vesper/Vesper.entitlements")]
+        for name in names:
+            if re.fullmatch(re.escape(prefix) + r"PlugIns/[^/]+\.appex/Info\.plist", name):
+                extension = plistlib.loads(archive.read(name))
+                for key in ("CFBundleShortVersionString", "CFBundleVersion"):
+                    if extension.get(key) != actual.get(key):
+                        raise ValueError(f"{name} {key} does not match the app")
+                if not extension.get("CFBundleIdentifier", "").startswith(bundle_id + "."):
+                    raise ValueError(f"{name} bundle identifier is not nested under {bundle_id}")
+                executable = extension["CFBundleExecutable"]
+                bundles.append((name.removesuffix("Info.plist"), extension, root / executable / f"{executable}.entitlements"))
+                # Widget buttons, widget settings and controls need App Intents metadata, which only
+                # Xcode generates. xtool builds on Linux can't, so the check applies to Xcode builds.
+                appintents = name.removesuffix("Info.plist") + "Metadata.appintents/"
+                if native_icon and not any(entry.startswith(appintents) for entry in names):
+                    raise ValueError(f"{name.removesuffix('/Info.plist')} has no App Intents metadata")
+        if not unstripped:
+            # Installers carry over only the entitlements already in each binary's signature.
+            for bundle, info, source in bundles:
+                if source.exists():
+                    expected_entitlements = plistlib.loads(source.read_bytes())
+                    if signed_entitlements(archive.read(bundle + info["CFBundleExecutable"])) != expected_entitlements:
+                        raise ValueError(f"{bundle} is not signed with {source.name}")
         privacy = plistlib.loads(archive.read(prefix + "PrivacyInfo.xcprivacy"))
         if privacy.get("NSPrivacyTracking") is not False:
             raise ValueError("Packaged privacy manifest must declare tracking disabled")

@@ -6,4 +6,7 @@ int vesper_rar3_key(const uint8_t *password, size_t length, const uint8_t *salt,
 int vesper_rar5_key(const uint8_t *password, size_t length, const uint8_t salt[16], unsigned log_rounds, uint8_t key[32], uint8_t check[8]);
 int vesper_aes_decrypt(const uint8_t *key, size_t key_length, const uint8_t iv[16], const uint8_t *input, size_t length, uint8_t *output);
 int vesper_sha256(const uint8_t *input, size_t length, uint8_t output[32]);
+/* Continues a standard (IEEE, zlib-compatible) CRC-32 over `length` bytes. `state` is the raw
+   running register (start with 0xFFFFFFFF, finish by inverting). */
+uint32_t vesper_crc32_update(uint32_t state, const uint8_t *input, size_t length);
 #endif

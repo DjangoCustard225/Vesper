@@ -7,6 +7,7 @@ import VesperCore
     var request: PlaybackRequest?
     var choices: [UsenetVideo] = []
     var error: String?
+    private(set) var stage = UsenetPreparationStage.preparing
     private(set) var preparing = false
     private(set) var readingFile = false
     private(set) var importedName: String?
@@ -33,6 +34,7 @@ import VesperCore
         let token = begin(makeRequest: makeRequest)
         importedName = url.lastPathComponent
         readingFile = true
+        stage = .readingNZB
         operation = Task {
             do {
                 let data = try await Task.detached { try UsenetService.importFile(url) }.value
@@ -55,6 +57,7 @@ import VesperCore
         let token = begin(makeRequest: makeRequest)
         importedName = name
         self.episodeTarget = episodeTarget
+        stage = .fetchingNZB
         do {
             let download = try await fetch()
             try Task.checkCancellation()
@@ -69,6 +72,7 @@ import VesperCore
     private func begin(makeRequest: @escaping (URL, UsenetVideo) -> PlaybackRequest) -> UUID {
         cancel()
         let token = UUID()
+        stage = .preparing
         self.token = token; self.makeRequest = makeRequest; preparing = true; error = nil
         return token
     }
@@ -78,9 +82,15 @@ import VesperCore
     ) async {
         do {
             let catalog = try await UsenetService.shared.prepare(
-                token: token, source: source, data: data, name: importedName, passwords: passwords)
+                token: token, source: source, data: data, name: importedName, passwords: passwords,
+                episodeTarget: episodeTarget,
+                onStage: { [weak self] stage in
+                    guard self?.token == token else { return }
+                    self?.stage = stage
+                })
             let matched = episodeTarget.map { target in catalog.filter(target.matches) } ?? []
             let videos = matched.isEmpty ? catalog : matched
+            guard !videos.isEmpty else { throw UsenetError.noVideo }
             try Task.checkCancellation()
             guard self.token == token else { return }
             if videos.count == 1, let video = videos.first, episodeTarget == nil || matched.count == 1 {
@@ -102,6 +112,8 @@ import VesperCore
         operation = Task { await self.play(video, token: token) }
     }
     private func play(_ video: UsenetVideo, token: UUID) async {
+        guard self.token == token else { return }
+        stage = .openingVideo
         do {
             let url = try await UsenetService.shared.open(video, token: token) { [weak self] message in
                 self?.error = message
@@ -137,11 +149,14 @@ private struct UsenetPlaybackPresentation: ViewModifier {
     @Bindable var coordinator: UsenetPlaybackCoordinator
     let onDismiss: () -> Void
     let showsErrorAlert: Bool
+    let presentationReady: Bool
     func body(content: Content) -> some View {
         content.background {
             UsenetPlaybackLifetime(playback: coordinator).frame(width: 0, height: 0)
             BuiltInPlayerPresentation(
-                request: $coordinator.request, gesturePreferences: store.playerGestures, players: [.aether],
+                request: Binding(
+                    get: { presentationReady ? coordinator.request : nil }, set: { coordinator.request = $0 }),
+                gesturePreferences: store.playerGestures, players: [.aether],
                 onDismiss: {
                     coordinator.finished(); onDismiss()
                 }
@@ -149,7 +164,8 @@ private struct UsenetPlaybackPresentation: ViewModifier {
         }
         .sheet(
             isPresented: Binding(
-                get: { !coordinator.choices.isEmpty }, set: { if !$0 { coordinator.choices = [] } }),
+                get: { presentationReady && !coordinator.choices.isEmpty },
+                set: { if !$0 && presentationReady { coordinator.choices = [] } }),
             onDismiss: { coordinator.finishChoosing() }
         ) {
             NavigationStack {
@@ -192,10 +208,12 @@ private struct UsenetPlaybackLifetime: UIViewRepresentable {
 extension View {
     func usenetPlayback(
         _ coordinator: UsenetPlaybackCoordinator, showsErrorAlert: Bool = true,
+        presentationReady: Bool = true,
         onDismiss: @escaping () -> Void = {}
     ) -> some View {
         modifier(
             UsenetPlaybackPresentation(
-                coordinator: coordinator, onDismiss: onDismiss, showsErrorAlert: showsErrorAlert))
+                coordinator: coordinator, onDismiss: onDismiss, showsErrorAlert: showsErrorAlert,
+                presentationReady: presentationReady))
     }
 }

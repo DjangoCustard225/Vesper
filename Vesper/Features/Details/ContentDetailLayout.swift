@@ -6,12 +6,19 @@ struct ContentDetailLayout<Actions: View, Content: View>: View {
     @Environment(AppStore.self) private var store
     let media: MediaItem
     let logoURL: String?
+    /// A short label above the title, such as "New Season".
+    var badge: String? = nil
+    /// While details load, reserve the description's two lines so the page does not shift when it arrives.
+    var loadingSummary = false
+    /// Logos linking out to other sites, shown under the description.
+    var links: TitleLinksSection? = nil
     @ViewBuilder var actions: Actions
     @ViewBuilder var content: Content
     @State private var summaryHeight: CGFloat = 140
     @State private var showingAbout = false
     @State private var resolvedArtwork = DetailArtwork()
     @State private var resolvedContext: String?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var artworkContext: String {
         MediaIdentity.aliases(media).sorted().joined(separator: "|")
             + store.metadataConfigurationRevision
@@ -22,9 +29,11 @@ struct ContentDetailLayout<Actions: View, Content: View>: View {
     var body: some View {
         GeometryReader { viewport in
             let landscape = viewport.size.width > viewport.size.height
+            // Keep the last resolved artwork while a refresh for the same title is pending, so a
+            // background metadata update does not blank the header and collapse it for a moment.
             let artwork =
                 store.downloads.networkAvailable
-                ? (resolvedContext == artworkContext ? resolvedArtwork : DetailArtwork())
+                ? (resolvedContext != nil ? resolvedArtwork : DetailArtwork())
                 : store.downloads.offlineDetailArtwork(for: media)
             let pending =
                 resolvedContext != artworkContext && store.hasMetadata(for: media)
@@ -40,16 +49,27 @@ struct ContentDetailLayout<Actions: View, Content: View>: View {
                 artwork: ImmersiveArtworkSource(
                     backdrop: artwork.backdropURL, poster: artwork.textlessPosterURL),
                 headerHeight: (artwork.textlessPosterURL == nil && artwork.backdropURL == nil)
-                    ? 0 : (landscape ? height : height + 16 + summaryHeight + 48),
-                isLandscape: landscape, usesPortraitPoster: !landscape
+                    // End the hero 24pt below the description; the first section starts 12pt lower,
+                    // on the page background, so the edge never cuts through a heading or row.
+                    ? 0 : (landscape ? height : height + 16 + summaryHeight + 24),
+                // The artwork scrolls with the content and ends on a clean edge, with no top blur.
+                isLandscape: landscape, usesPortraitPoster: !landscape,
+                bottomBleed: landscape ? 0 : 220, fadesUnderTopBar: true
             ) {
                 VStack(alignment: .leading, spacing: landscape ? 24 : 16) {
                     ZStack(alignment: landscape ? .bottomLeading : .bottom) {
                         Color.clear
                         VStack(alignment: landscape ? .leading : .center, spacing: landscape ? 8 : 16) {
-                            PosterTitle(
-                                name: media.name, logoURL: logoURL, compact: landscape,
-                                alignment: landscape ? .leading : .center)
+                            VStack(alignment: landscape ? .leading : .center, spacing: 8) {
+                                if let badge {
+                                    Text(badge).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                                        .padding(.horizontal, 10).padding(.vertical, 4)
+                                        .background(.ultraThinMaterial, in: Capsule())
+                                }
+                                PosterTitle(
+                                    name: media.name, logoURL: logoURL, compact: landscape,
+                                    alignment: landscape ? .leading : .center)
+                            }
                             if landscape { actions }
                         }
                         .frame(
@@ -57,10 +77,16 @@ struct ContentDetailLayout<Actions: View, Content: View>: View {
                         )
                         .padding(.horizontal, landscape ? 40 : 24).padding(.bottom, 20)
                     }.frame(height: height)
-                    VStack(alignment: .leading, spacing: 24) {
+                    // Lazy, so sections below the fold (related titles, cast, crew) are built on demand.
+                    LazyVStack(alignment: .leading, spacing: 24) {
                         VStack(alignment: .leading, spacing: landscape ? 24 : 16) {
                             if !landscape { actions }
-                            if let description = media.description, !description.isEmpty {
+                            if loadingSummary, media.description?.isEmpty ?? true {
+                                Text("Loading the description for this title.\nPlease wait a moment.")
+                                    .font(.body).lineSpacing(4).lineLimit(2, reservesSpace: true)
+                                    .frame(maxWidth: 650, alignment: .leading)
+                                    .redacted(reason: .placeholder).accessibilityHidden(true)
+                            } else if let description = media.description, !description.isEmpty {
                                 Button {
                                     showingAbout = true
                                 } label: {
@@ -72,16 +98,23 @@ struct ContentDetailLayout<Actions: View, Content: View>: View {
                                     .accessibilityHint("Opens the full description")
                                     .frame(maxWidth: 650, alignment: .leading)
                             }
-                        }.onGeometryChange(for: CGFloat.self) {
+                            if let links { links }
+                        }
+                        .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: loadingSummary)
+                        .onGeometryChange(for: CGFloat.self) {
                             $0.size.height
                         } action: {
                             summaryHeight = $0
                         }
+                        .padding(.bottom, landscape ? 0 : 12)
                         content
                     }.padding(.horizontal, 24).padding(.bottom, 32).frame(maxWidth: 1000)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }.frame(maxWidth: .infinity)
             }
+            .scrollIndicators(.hidden)
+            // The header can still change once (artwork found or confirmed missing); ease that change.
+            .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: tall)
         }.ignoresSafeArea(.container, edges: .top).appBackground().navigationBarTitleDisplayMode(.inline)
             .fontDesign(.default).toolbar(.visible, for: .navigationBar)
             .toolbarBackground(.hidden, for: .navigationBar)

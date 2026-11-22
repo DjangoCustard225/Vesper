@@ -10,6 +10,8 @@ struct PlaybackRequest: Identifiable {
     let subtitle: String?
     var artworkURL: URL? = nil
     var isLive = false
+    var subtitleMedia: MediaItem? = nil
+    var subtitleVideoID: String? = nil
     var resumeSeconds: Double = 0
     var onProgress: (@MainActor (PlaybackProgressUpdate) -> Void)? = nil
     var onScrobble: (@MainActor (TraktScrobbleEvent) -> Void)? = nil

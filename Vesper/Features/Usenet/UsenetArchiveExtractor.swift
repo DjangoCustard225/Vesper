@@ -38,6 +38,14 @@ enum UsenetArchiveExtractor {
             do {
                 let archive = try Archive(fileURL: archiveURL, password: password)
                 let entries = try archive.entries().filter { !$0.directory }
+                // Check the declared size against free space first, so a crafted archive can't fill
+                // the device. Each entry is also held to its declared size while it's written.
+                let declared = entries.reduce(UInt64(0)) {
+                    $0.addingReportingOverflow($1.knownSize ?? 0).partialValue
+                }
+                if let available = Self.availableCapacity(at: destRoot), declared > available {
+                    return .insufficientStorage
+                }
                 for (entryIndex, entry) in entries.enumerated() {
                     if Task.isCancelled { return .failed("Extraction paused") }
                     if entry.encrypted, password == nil { return .passwordRequired }
@@ -58,12 +66,17 @@ enum UsenetArchiveExtractor {
                     // Surface a write failure (e.g. disk full) instead of silently producing a
                     // truncated file that the caller then treats as a successful extraction.
                     var writeError: Error?
+                    var written: UInt64 = 0
                     do {
                         try archive.extract(entry) { data, extraction in
                             if Task.isCancelled {
                                 writeError = CancellationError(); extraction.cancel(); return
                             }
                             guard writeError == nil else { return }
+                            written += UInt64(data.count)
+                            if let limit = entry.knownSize, written > limit {
+                                writeError = ExtractionError.largerThanDeclared; extraction.cancel(); return
+                            }
                             progress(
                                 (Double(archiveIndex) + (Double(entryIndex) + extraction.fractionCompleted)
                                     / Double(max(1, entries.count)))
@@ -95,6 +108,17 @@ enum UsenetArchiveExtractor {
         }
         progress(1)
         return .extracted(fileCount: extractedCount)
+    }
+
+    private enum ExtractionError: LocalizedError {
+        case largerThanDeclared
+        var errorDescription: String? { "The archive holds more data than it declares." }
+    }
+
+    /// Free space for a destination, or nil when the system can't say.
+    private static func availableCapacity(at url: URL) -> UInt64? {
+        let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        return values?.volumeAvailableCapacityForImportantUsage.map { UInt64(max(0, $0)) }
     }
 
     /// UnRAR errors carry no message of their own — `localizedDescription` renders them as
@@ -162,5 +186,13 @@ enum UsenetArchiveExtractor {
             return Int(digits) == 1
         }
         return true
+    }
+}
+
+extension Entry {
+    /// The declared unpacked size, or nil when the archive records it as unknown.
+    fileprivate var knownSize: UInt64? {
+        // UnRAR marks an unknown size with INT64NDF.
+        uncompressedSize >= 0x7fff_ffff_7fff_ffff ? nil : uncompressedSize
     }
 }

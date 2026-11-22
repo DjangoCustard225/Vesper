@@ -1,12 +1,21 @@
 import Foundation
 
 public struct RetryPolicy: Sendable {
+    /// Space TMDB retries over several seconds so short gateway outages have time to recover.
+    /// Connection failures (offline, host unreachable) give up sooner so screens fail fast.
+    public static let tmdb = RetryPolicy(attempts: 4, baseDelay: 1, connectionAttempts: 2)
     public let attempts: Int
+    /// Attempt limit for transport errors with no HTTP status; defaults to `attempts`.
+    public let connectionAttempts: Int
     public let baseDelay: TimeInterval
     public let budget: TimeInterval
 
-    public init(attempts: Int = 3, baseDelay: TimeInterval = 0.3, budget: TimeInterval = 40) {
+    public init(
+        attempts: Int = 3, baseDelay: TimeInterval = 0.3, budget: TimeInterval = 40,
+        connectionAttempts: Int? = nil
+    ) {
         self.attempts = max(1, attempts)
+        self.connectionAttempts = max(1, min(self.attempts, connectionAttempts ?? attempts))
         self.baseDelay = max(0, baseDelay)
         self.budget = max(0, budget)
     }
@@ -15,7 +24,7 @@ public struct RetryPolicy: Sendable {
         status: Int?, error: URLError.Code?, retryAfter: String?, attempt: Int, elapsed: TimeInterval,
         now: Date = Date()
     ) -> TimeInterval? {
-        guard attempt < attempts else { return nil }
+        guard attempt < (status == nil && error != nil ? connectionAttempts : attempts) else { return nil }
         let retryable =
             status.map { [408, 429, 500, 502, 503, 504].contains($0) }
             ?? error.map { [.timedOut, .networkConnectionLost, .cannotConnectToHost].contains($0) } ?? false
@@ -25,12 +34,7 @@ public struct RetryPolicy: Sendable {
             if let seconds = Double(retryAfter), seconds.isFinite {
                 delay = max(delay, seconds)
             } else {
-                let formatter = DateFormatter()
-                formatter.locale = Locale(identifier: "en_US_POSIX")
-                formatter.timeZone = TimeZone(secondsFromGMT: 0)
-
-                formatter.dateFormat = "EEE',' dd MMM yyyy HH':'mm':'ss z"
-                if let date = formatter.date(from: retryAfter) {
+                if let date = FixedDateParser.http.date(from: retryAfter) {
                     delay = max(delay, date.timeIntervalSince(now))
                 }
             }

@@ -284,14 +284,6 @@ public struct DownloadFileLeases {
     }
 }
 
-extension Episode {
-    public func offlineSnapshot(thumbnail: String?) -> Episode {
-        Episode(
-            id: id, title: title, name: name, season: season, episode: episode, overview: overview,
-            thumbnail: thumbnail, released: released, streams: nil, runtimeMinutes: runtimeMinutes)
-    }
-}
-
 public struct DownloadTaskKey: Sendable {
     public let id: UUID
     public let attempt: UUID

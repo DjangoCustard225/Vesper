@@ -10,6 +10,7 @@ struct BuiltInPlayerView: View {
     var players: [VideoPlayer]
     let closePlayer: () -> Void
     let choosePlayer: (VideoPlayer) -> Void
+    @State private var showingSubDL = false
     @State private var controller: AetherPlaybackController
     @State private var controlsVisible = true
     @State private var applicationActive = UIApplication.shared.applicationState == .active
@@ -24,17 +25,15 @@ struct BuiltInPlayerView: View {
     @State private var intro = IntroSkipController()
     private var introLookupID: String { request.id.uuidString + ":" + String(request.introSkippingEnabled()) }
 
-    private var introTarget: Double? {
-        guard request.introSkippingEnabled(), !request.isLive, applicationActive,
-            controller.pictureInPictureState == .inactive,
-            !scrubbing, !showingOptions, controller.error == nil, !controller.hasEnded
-        else { return nil }
-        return intro.segment?.seekFraction(in: controller.timeline)
-    }
+    // Both are derived from the playback clock in PlaybackMilestoneWatcher, so the player body
+    // redraws only when they change, not on every clock tick.
+    @State private var introTarget: Double?
+    @State private var offersNextEpisode = false
 
-    private var offersNextEpisode: Bool {
-        nextEpisode != nil && request.onNextEpisode != nil && !request.isLive
-            && UpNext.shouldOffer(timeline: controller.timeline, ended: controller.hasEnded)
+    private var introSkipAllowed: Bool {
+        request.introSkippingEnabled() && !request.isLive && applicationActive
+            && controller.pictureInPictureState == .inactive
+            && !scrubbing && !showingOptions && controller.error == nil && !controller.hasEnded
     }
 
     init(
@@ -66,6 +65,14 @@ struct BuiltInPlayerView: View {
                 x: videoSize.width / 2 - geometry.safeAreaInsets.leading,
                 y: videoSize.height / 2 - geometry.safeAreaInsets.top)
             gestureSurface(playerCanvas(size: geometry.size, videoCenter: videoCenter))
+                .background {
+                    PlaybackMilestoneWatcher(
+                        controller: controller,
+                        introSegment: introSkipAllowed ? intro.segment : nil,
+                        upNextAvailable: nextEpisode != nil && request.onNextEpisode != nil
+                            && !request.isLive,
+                        introTarget: $introTarget, offersNextEpisode: $offersNextEpisode)
+                }
                 .accessibilityAction(named: "Show or hide playback controls") { toggleControls() }
                 .onPreferenceChange(PlaybackControlFrames.self) { controlFrames = $0 }
                 .onChange(of: videoSize) { _, _ in controller.endBoost() }
@@ -121,6 +128,13 @@ struct BuiltInPlayerView: View {
             revealControls()
         }
         .onChange(of: voiceOver) { _, _ in scheduleHide() }
+        .sheet(isPresented: $showingSubDL) {
+            if let media = request.subtitleMedia {
+                SubDLSearchView(media: media, videoID: request.subtitleVideoID) { url, result in
+                    controller.addSubtitle(url: url, name: result.name, language: result.language)
+                }
+            }
+        }
         .onDisappear {
             intro.cancel()
             hideTask?.cancel()
@@ -131,6 +145,7 @@ struct BuiltInPlayerView: View {
 
     private func prepareForBackground() {
         controller.endBoost()
+        adjustments.restoreBrightness()
         if scrubbing {
             controller.seek(fraction: scrubFraction)
             scrubbing = false
@@ -202,11 +217,14 @@ struct BuiltInPlayerView: View {
             .onTapGesture { toggleControls() }
     }
 
+    private var gesturesEnabled: Bool {
+        controller.error == nil && !scrubbing && !showingOptions && !showingSubDL
+            && applicationActive && controller.pictureInPictureState == .inactive
+    }
+
     private var holdCapture: PlayerHoldCapture {
         PlayerHoldCapture(
-            enabled: gesturePreferences.holdFor2x && controller.error == nil
-                && !scrubbing && !showingOptions && applicationActive
-                && controller.pictureInPictureState == .inactive,
+            enabled: gesturePreferences.holdFor2x && gesturesEnabled,
             excludedFrames: controlFrames
         ) { held in
             if held, !scrubbing, !showingOptions,
@@ -221,10 +239,10 @@ struct BuiltInPlayerView: View {
 
     private var adjustmentCapture: PlayerAdjustmentCapture {
         PlayerAdjustmentCapture(
-            brightnessEnabled: gesturePreferences.brightnessSwipe && controller.error == nil
+            brightnessEnabled: gesturePreferences.brightnessSwipe && gesturesEnabled
                 && !controller.isBoosting,
-            volumeEnabled: gesturePreferences.volumeSwipe && controller.error == nil
-                && !controller.isBoosting,
+            volumeEnabled: gesturePreferences.volumeSwipe && gesturesEnabled && !controller.isBoosting,
+            excludedFrames: controlFrames,
             began: { side in
                 guard !controller.isBoosting else { return }
                 adjustments.begin(side)
@@ -278,7 +296,7 @@ struct BuiltInPlayerView: View {
             .padding(.top, 12).padding(.bottom, 20)
             HStack(spacing: transportSpacing) {
                 transportButton(
-                    "Back 10 seconds", symbol: "gobackward.10", enabled: controller.timeline.isSeekable
+                    "Back 10 seconds", symbol: "gobackward.10", enabled: controller.isSeekable
                 ) {
                     controller.skip(seconds: -10)
                 }
@@ -300,7 +318,7 @@ struct BuiltInPlayerView: View {
                     )
                     .playbackControl()
                 transportButton(
-                    "Forward 10 seconds", symbol: "goforward.10", enabled: controller.timeline.isSeekable
+                    "Forward 10 seconds", symbol: "goforward.10", enabled: controller.isSeekable
                 ) {
                     controller.skip(seconds: 10)
                 }
@@ -329,49 +347,24 @@ struct BuiltInPlayerView: View {
     }
 
     private var timeline: some View {
-        HStack(spacing: 12) {
-            Text(timeLabel(displayedElapsed)).fixedSize()
-                .accessibilityHidden(true)
-            PlayerScrubber(
-                progress: scrubbing ? scrubFraction : controller.timeline.progress,
-                isEnabled: controller.timeline.isSeekable, isEditing: scrubbing,
-                elapsedLabel: timeLabel(displayedElapsed),
-                onScrub: { fraction in
-                    controller.endBoost()
-                    scrubbing = true
-                    scrubFraction = fraction
-                    interactionID += 1
-                    revealControls()
-                },
-                onCommit: { fraction in
-                    controller.seek(fraction: fraction)
-                    scrubbing = false
-                    revealControls()
-                },
-                onAdjust: { seconds in
-                    controller.skip(seconds: seconds)
-                    revealControls()
-                })
-            Text(
-                controller.timeline.duration > 0
-                    ? "−" + timeLabel(max(0, controller.timeline.duration - displayedElapsed))
-                    : controller.isBuffering ? "−−:−−" : "LIVE"
-            )
-            .fixedSize().accessibilityHidden(true)
-        }
-        .font(.system(size: 15, weight: .medium)).monospacedDigit()
-        .foregroundStyle(.white.opacity(0.65))
-        .padding(.horizontal, 16)
-        .glassEffect(.clear, in: .capsule)
-    }
-
-    private var displayedElapsed: Double {
-        scrubbing ? scrubFraction * controller.timeline.duration : controller.timeline.elapsed
-    }
-
-    private func timeLabel(_ seconds: Double) -> String {
-        let label = PlaybackTimeline.label(seconds: seconds)
-        return label.count == 4 ? "0" + label : label
+        PlayerTimelineBar(
+            controller: controller, scrubbing: scrubbing, scrubFraction: scrubFraction,
+            onScrub: { fraction in
+                controller.endBoost()
+                scrubbing = true
+                scrubFraction = fraction
+                interactionID += 1
+                revealControls()
+            },
+            onCommit: { fraction in
+                controller.seek(fraction: fraction)
+                scrubbing = false
+                revealControls()
+            },
+            onAdjust: { seconds in
+                controller.skip(seconds: seconds)
+                revealControls()
+            })
     }
 
     private func settingsMenu() -> UIMenu {
@@ -404,6 +397,12 @@ struct BuiltInPlayerView: View {
                         controller.selectSubtitle(track.id)
                     }
                 })
+        let onlineSubtitles = UIAction(
+            title: "Fetch Subtitles", image: UIImage(systemName: "magnifyingglass"),
+            attributes: request.subtitleMedia == nil || request.isLive ? .disabled : []
+        ) { _ in
+            showingSubDL = true
+        }
         let fit = settingsAction(
             controller.fillsScreen ? "Fit video" : "Fill screen",
             symbol: controller.fillsScreen
@@ -418,7 +417,12 @@ struct BuiltInPlayerView: View {
                     title: "Open in \(player.title)", image: UIImage(systemName: "arrow.up.right.square")
                 ) { _ in switchPlayer(player) }
             })
-        return UIMenu(children: [speed, audio, subtitles, fit, players])
+        return UIMenu(children: [
+            speed, audio,
+            UIMenu(
+                title: "Subtitles", image: UIImage(systemName: "captions.bubble"),
+                children: subtitles.children + [onlineSubtitles]), fit, players,
+        ])
     }
 
     private func settingsAction(
@@ -517,6 +521,68 @@ struct BuiltInPlayerView: View {
         controller.stop()
         adjustments.restoreBrightness()
         choosePlayer(player)
+    }
+}
+
+/// Reads the playback clock in its own view so clock ticks redraw only this, not the player.
+private struct PlaybackMilestoneWatcher: View {
+    let controller: AetherPlaybackController
+    let introSegment: IntroSegment?
+    let upNextAvailable: Bool
+    @Binding var introTarget: Double?
+    @Binding var offersNextEpisode: Bool
+
+    var body: some View {
+        let target = introSegment?.seekFraction(in: controller.timeline)
+        let offers =
+            upNextAvailable && UpNext.shouldOffer(timeline: controller.timeline, ended: controller.hasEnded)
+        Color.clear.accessibilityHidden(true)
+            .onChange(of: target, initial: true) { _, value in if introTarget != value { introTarget = value }
+            }
+            .onChange(of: offers, initial: true) { _, value in
+                if offersNextEpisode != value { offersNextEpisode = value }
+            }
+    }
+}
+
+/// Elapsed time, scrubber and remaining time. Kept separate so the clock redraws only the bar.
+private struct PlayerTimelineBar: View {
+    let controller: AetherPlaybackController
+    let scrubbing: Bool
+    let scrubFraction: Double
+    let onScrub: (Double) -> Void
+    let onCommit: (Double) -> Void
+    let onAdjust: (Double) -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(timeLabel(displayedElapsed)).fixedSize()
+                .accessibilityHidden(true)
+            PlayerScrubber(
+                progress: scrubbing ? scrubFraction : controller.timeline.progress,
+                isEnabled: controller.timeline.isSeekable, isEditing: scrubbing,
+                elapsedLabel: timeLabel(displayedElapsed),
+                onScrub: onScrub, onCommit: onCommit, onAdjust: onAdjust)
+            Text(
+                controller.timeline.duration > 0
+                    ? "−" + timeLabel(max(0, controller.timeline.duration - displayedElapsed))
+                    : controller.isBuffering ? "−−:−−" : "LIVE"
+            )
+            .fixedSize().accessibilityHidden(true)
+        }
+        .font(.system(size: 15, weight: .medium)).monospacedDigit()
+        .foregroundStyle(.white.opacity(0.65))
+        .padding(.horizontal, 16)
+        .glassEffect(.clear, in: .capsule)
+    }
+
+    private var displayedElapsed: Double {
+        scrubbing ? scrubFraction * controller.timeline.duration : controller.timeline.elapsed
+    }
+
+    private func timeLabel(_ seconds: Double) -> String {
+        let label = PlaybackTimeline.label(seconds: seconds)
+        return label.count == 4 ? "0" + label : label
     }
 }
 

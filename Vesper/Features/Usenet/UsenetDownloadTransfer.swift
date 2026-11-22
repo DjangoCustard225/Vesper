@@ -74,14 +74,10 @@ enum UsenetDownloadError: LocalizedError {
         let manifest = try await Task.detached {
             try NZBManifest.parse(data, name: source.title, passwords: passwords)
         }.value
-        var providers = (source.servers ?? []).prefix(16).compactMap {
-            try? UsenetProvider.from(server: $0, limit: UsenetService.shared.provider?.connections ?? 8)
-        }
-        if providers.isEmpty, let provider = UsenetService.shared.provider {
-            providers = [try provider.validated()]
-        }
-        providers += UsenetService.shared.backupProviders.filter { !providers.contains($0) }
-        guard let provider = providers.first else { throw UsenetError.providerRequired }
+        let providers = try UsenetProvider.selection(
+            servers: Array((source.servers ?? []).prefix(16)), saved: UsenetService.shared.provider,
+            backups: UsenetService.shared.backupProviders)
+        let provider = providers[0]
         let options = UsenetDownloadOptions.shared
         let cap = min(1_000_000, max(0, options.bandwidthKBps)) * 1024
         let selectedFiles: [NZBFile]

@@ -54,6 +54,14 @@ public struct WatchProgress: Codable, Sendable {
 
     public init() {}
 
+    /// Rebuilds progress from synced records, newest first, within the usual record limit.
+    init(syncedRecords: [WatchRecord]) {
+        var seen = Set<String>()
+        records = Array(
+            syncedRecords.sorted { $0.updatedAt > $1.updatedAt }.filter { seen.insert($0.id).inserted }
+                .prefix(2_000))
+    }
+
     public var continueWatching: [WatchRecord] {
         var result: [WatchRecord] = []
         var hiddenAliases = Set<String>()

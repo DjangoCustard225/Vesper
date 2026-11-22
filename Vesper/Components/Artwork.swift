@@ -73,12 +73,17 @@ struct ImmersiveArtwork: View {
             }
             .overlay {
                 if usesPortraitPoster && !isLandscape {
+                    // A long, eased darkening: legible behind the actions, then a soft smudge of the
+                    // artwork's colours that dissolves into the page behind the first rows.
                     LinearGradient(
                         stops: [
                             .init(color: .clear, location: 0),
-                            .init(color: .clear, location: 0.35),
-                            .init(color: .black.opacity(0.3), location: 0.62),
-                            .init(color: .black, location: 0.9),
+                            .init(color: .clear, location: 0.34),
+                            .init(color: .black.opacity(0.28), location: 0.5),
+                            .init(color: .black.opacity(0.5), location: 0.64),
+                            .init(color: .black.opacity(0.68), location: 0.76),
+                            .init(color: .black.opacity(0.86), location: 0.88),
+                            .init(color: .black, location: 1),
                         ], startPoint: .top, endPoint: .bottom)
                 } else {
                     LinearGradient(
@@ -105,16 +110,22 @@ struct ImmersiveArtwork: View {
                     image.resizable().scaledToFill()
                         .frame(width: size.width, height: size.height).clipped()
                 } else {
-                    image.resizable().scaledToFit().frame(width: size.width)
-                        .mask {
-                            LinearGradient(
-                                stops: [
-                                    .init(color: .black, location: 0),
-                                    .init(color: .black, location: 0.65),
-                                    .init(color: .clear, location: 1),
-                                ], startPoint: .top, endPoint: .bottom)
-                        }
-                        .frame(width: size.width, height: size.height, alignment: .top)
+                    ZStack(alignment: .top) {
+                        // A blurred continuation of the poster fills the hero below its sharp edge,
+                        // so the description sits on the artwork's own colours, not on black.
+                        BlurredArtwork(url: url).frame(width: size.width, height: size.height)
+                            .overlay(.black.opacity(0.2)).clipped()
+                        image.resizable().scaledToFit().frame(width: size.width)
+                            .mask {
+                                LinearGradient(
+                                    stops: [
+                                        .init(color: .black, location: 0),
+                                        .init(color: .black, location: 0.7),
+                                        .init(color: .clear, location: 1),
+                                    ], startPoint: .top, endPoint: .bottom)
+                            }
+                    }
+                    .frame(width: size.width, height: size.height, alignment: .top)
                 }
             } else {
                 ArtworkPlaceholder(isLoading: url != nil && phase.error == nil)
@@ -134,8 +145,8 @@ struct ImmersiveArtwork: View {
                     image.resizable().scaledToFill().frame(width: size.width, height: size.height).clipped()
                 } else {
                     ZStack(alignment: .trailing) {
-                        image.resizable().scaledToFill().frame(width: size.width, height: size.height)
-                            .blur(radius: 32).overlay(.black.opacity(0.55)).clipped()
+                        BlurredArtwork(url: url, amount: 0.05).frame(width: size.width, height: size.height)
+                            .overlay(.black.opacity(0.55)).clipped()
                         image.resizable().scaledToFit()
                             .frame(width: min(size.width * 0.34, 250), height: size.height * 0.88)
                             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))

@@ -181,10 +181,7 @@ public actor NZBFinderClient {
                 for: request, operation: .indexer, byteLimit: limit)
             if response.statusCode == 429 {
                 let raw = response.value(forHTTPHeaderField: "Retry-After") ?? ""
-                let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX");
-                formatter.timeZone = TimeZone(secondsFromGMT: 0);
-                formatter.dateFormat = "EEE',' dd MMM yyyy HH':'mm':'ss z"
-                let delay = Double(raw) ?? formatter.date(from: raw)?.timeIntervalSinceNow ?? 60
+                let delay = Double(raw) ?? FixedDateParser.http.date(from: raw)?.timeIntervalSinceNow ?? 60
                 cooldown[key] = Date().addingTimeInterval(delay.isFinite ? max(1, delay) : 60)
                 throw NZBFinderError.rateLimited
             }

@@ -95,8 +95,6 @@ struct TraktSettingsView: View {
                     }
                 } header: {
                     Text("Preferences")
-                } footer: {
-                    Text("Scrobbling tracks playback in Vesper’s built-in player.")
                 }
             }
             Section("Account management") {
@@ -176,7 +174,7 @@ private struct TraktSignInSheet: View {
             }
             .navigationTitle("Connect Trakt").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(role: .close) { dismiss() } }
             }
         }
         .presentationDetents([.large]).presentationDragIndicator(.visible)

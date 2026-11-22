@@ -69,12 +69,7 @@ public enum StreamPolicy {
                 let duration = values.first(where: { $0.name.lowercased() == prefix + "expires" })?.value,
                 let seconds = Double(duration), seconds.isFinite, seconds >= 0
             {
-                let formatter = DateFormatter()
-                formatter.locale = Locale(identifier: "en_US_POSIX")
-
-                formatter.timeZone = TimeZone(secondsFromGMT: 0)
-                formatter.dateFormat = "yyyyMMdd'T'HHmmss'Z'"
-                if let date = formatter.date(from: stamp),
+                if let date = FixedDateParser.signedURL.date(from: stamp),
                     date.addingTimeInterval(seconds) <= now.addingTimeInterval(15)
                 {
                     return true

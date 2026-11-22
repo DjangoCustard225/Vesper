@@ -44,6 +44,9 @@ final class AppStore {
     var preferredPlayer: VideoPlayer {
         didSet { AppPreferenceStorage.save(preferredPlayer) }
     }
+    @ObservationIgnored private let ratingsClient = MDBListClient(
+        cache: ResponseCache(
+            directory: AppStore.cacheDirectory.appendingPathComponent("MDBList"), byteLimit: 4 * 1024 * 1024))
     @ObservationIgnored private let introClient = IntroDBClient(
         cache: ResponseCache(
             directory: AppStore.cacheDirectory.appendingPathComponent("IntroDB")))
@@ -83,9 +86,15 @@ final class AppStore {
         return value
     }
     private(set) var isClearingCache = false
-    private(set) var library = LibraryState()
-    private let history = WatchProgressController(repository: WatchProgressStorage.repository)
+    private(set) var library = LibraryState() {
+        didSet { savedTitles = TitleIndex(library.items) }
+    }
+    /// Answers "is this saved?" for bookmark buttons without scanning the library.
+    private var savedTitles = TitleIndex<MediaItem>([])
+    private let history = WatchProgressController(
+        repository: WatchProgressStorage.repository, loadInBackground: true)
     let trakt = TraktStore()
+    let folderSync = FolderSync()
     let simkl = SimklStore()
 
     var activeTrackingService: TrackingService = TrackingService.current {
@@ -118,7 +127,13 @@ final class AppStore {
     }
     var incomingAddon: String?
     var showInstall = false
+    /// Add-ons from another device's sync file that include ones not installed here. Anyone who can
+    /// write to the sync folder could add an add-on, so new ones wait for approval.
+    private(set) var pendingSyncedAddons: [InstalledAddon]?
     private(set) var tmdbCredential: String?
+    private(set) var mdblistKey: String?
+    /// Whether a SubDL key is saved, for the Settings status. The key itself is read when needed.
+    var subdlConfigured = false
     private(set) var tvdbCredentials: TVDBCredentials?
     private(set) var tvdbRevision = UUID()
     @ObservationIgnored private var tvdbClient: TVDBClient
@@ -132,6 +147,10 @@ final class AppStore {
     @ObservationIgnored private var cacheUpdateTask: Task<Void, Never>?
     @ObservationIgnored private var pendingCacheUpdates: Set<String> = []
     private var libraryWritable = true
+    @ObservationIgnored private let libraryWriter = LibraryWriter(repository: LibraryStorage.repository)
+    /// The latest library change; each change waits for the one before it.
+    @ObservationIgnored private var librarySave: Task<Void, Never>?
+    @ObservationIgnored private var libraryLoad: Task<Void, Never>?
     private var addonsWritable = true
 
     private static var cacheDirectory: URL {
@@ -148,6 +167,7 @@ final class AppStore {
     // MARK: - Initialization
 
     init() {
+        let keychain = SecureStorage.snapshot()
         let showAllExternalPlayers = AppPreferenceStorage.showAllExternalPlayers()
         self.showAllExternalPlayers = showAllExternalPlayers
         showSkipIntro = AppPreferenceStorage.showSkipIntro()
@@ -158,7 +178,7 @@ final class AppStore {
         tmdbClient = TMDBClient(cache: tmdbCache)
         tvdbClient = TVDBClient(cache: tvdbCache)
         let saved: [InstalledAddon]
-        do { saved = try SecureStorage.load(.addons) ?? [] } catch {
+        do { saved = try keychain.load(.addons) ?? [] } catch {
             saved = []
             addonsWritable = false
             localStorageError = error.localizedDescription
@@ -169,27 +189,32 @@ final class AppStore {
         let player = AppPreferenceStorage.preferredPlayer().availablePreference(in: players)
         preferredPlayer = player
         AppPreferenceStorage.save(player)
-        do { tmdbCredential = try SecureStorage.load(.tmdbCredential) } catch {
+        do { tmdbCredential = try keychain.load(.tmdbCredential) } catch {
             tmdbCredential = nil
             localStorageError = error.localizedDescription
         }
-        do { tvdbCredentials = try SecureStorage.load(.tvdbCredentials) } catch {
+        subdlConfigured = ((try? keychain.load(.subdlAPIKey)) ?? nil) != nil
+        do { mdblistKey = try keychain.load(.mdblistKey) } catch {
+            mdblistKey = nil
+            localStorageError = error.localizedDescription
+        }
+        do { tvdbCredentials = try keychain.load(.tvdbCredentials) } catch {
             tvdbCredentials = nil
             localStorageError = error.localizedDescription
         }
-        do { try SecureStorage.delete(.retiredFanartCredentials) } catch {
-            localStorageError = error.localizedDescription
+        if keychain.contains(.retiredFanartCredentials) {
+            do { try SecureStorage.delete(.retiredFanartCredentials) } catch {
+                localStorageError = error.localizedDescription
+            }
         }
         do { try Self.removeRetiredFanartCache() } catch {
             localStorageError = "A retired artwork cache couldn’t be removed."
         }
-        do { heroCatalogID = try SecureStorage.load(.heroCatalog) ?? HeroCatalogSelection.automaticID } catch
-        {
+        do { heroCatalogID = try keychain.load(.heroCatalog) ?? HeroCatalogSelection.automaticID } catch {
             heroCatalogID = HeroCatalogSelection.automaticID
             localStorageError = error.localizedDescription
         }
-        do { catalogPreferences = try SecureStorage.load(.catalogPreferences) ?? CatalogPreferences() } catch
-        {
+        do { catalogPreferences = try keychain.load(.catalogPreferences) ?? CatalogPreferences() } catch {
             catalogsWritable = false
             localStorageError = error.localizedDescription
         }
@@ -199,17 +224,27 @@ final class AppStore {
                     "The removed metadata provider couldn’t be cleared from Keychain. It is disabled for this session."
             }
         }
-        do {
-            let loaded = try LibraryStorage.load()
-            library = loaded.state
-            if loaded.recovered {
-                localStorageError =
-                    "Your library was recovered from its last saved copy. The damaged file has been preserved."
+        // Read and decode the library off the main actor so launch isn't held up. Library changes
+        // queue behind this load.
+        let libraryLoad = Task {
+            let result = await Task.detached(priority: .userInitiated) {
+                Result { try LibraryStorage.load() }
             }
-        } catch {
-            libraryWritable = false
-            localStorageError = "Your saved library couldn’t be read. Its file has been preserved."
+            .value
+            switch result {
+            case .success(let loaded):
+                self.library = loaded.state
+                if loaded.recovered {
+                    self.localStorageError =
+                        "Your library was recovered from its last saved copy. The damaged file has been preserved."
+                }
+            case .failure:
+                self.libraryWritable = false
+                self.localStorageError = "Your saved library couldn’t be read. Its file has been preserved."
+            }
         }
+        self.libraryLoad = libraryLoad
+        librarySave = libraryLoad
 
         downloads.resolveSource = { [weak self] record in
             guard let self else { throw DownloadFailure.response }
@@ -336,6 +371,24 @@ final class AppStore {
         addonsWritable = true
     }
 
+    /// Add-ons in `synced` that aren't installed here.
+    func newSyncedAddons(in synced: [InstalledAddon]) -> [InstalledAddon] {
+        let installed = Set(addons.map(\.manifestURL))
+        return synced.filter { !installed.contains($0.manifestURL) }
+    }
+
+    func acceptSyncedAddons() {
+        if let pending = pendingSyncedAddons { saveAddons(pending) }
+        pendingSyncedAddons = nil
+    }
+
+    /// Keeps this device's add-ons and stops syncing them here, so declining doesn't remove the new
+    /// add-ons from the other devices.
+    func declineSyncedAddons() {
+        pendingSyncedAddons = nil
+        folderSync.includesAddons = false
+    }
+
     private func saveAddons(_ updated: [InstalledAddon]) {
         do {
             try SecureStorage.save(updated, for: .addons)
@@ -343,6 +396,34 @@ final class AppStore {
             Task { await addonCache.clear() }
         } catch { localStorageError = error.localizedDescription }
     }
+    // MARK: - MDBList ratings
+
+    func saveMDBListKey(_ input: String) async throws {
+        let key = try MDBListClient.normalizedKey(input)
+        // Verify before replacing a working saved key.
+        try await MDBListClient().validate(key: key)
+        try Task.checkCancellation()
+        try SecureStorage.save(key, for: .mdblistKey)
+        mdblistKey = key
+    }
+
+    func removeMDBListKey() throws {
+        try SecureStorage.delete(.mdblistKey)
+        mdblistKey = nil
+    }
+
+    /// IMDb, Rotten Tomatoes and Letterboxd scores for a title, or nil without an MDBList key.
+    func ratings(for media: MediaItem, details: MetadataEnrichment?) async -> TitleRatings? {
+        guard let key = mdblistKey,
+            let title = RatingsTitle(
+                type: media.type,
+                imdbID: MediaIdentity.validIMDb(media.imdbID) ?? MediaIdentity.validIMDb(details?.imdbID)
+                    ?? MediaIdentity.validIMDb(media.id),
+                tmdbID: details?.tmdbID ?? media.tmdbID)
+        else { return nil }
+        return try? await ratingsClient.ratings(for: title, key: key)
+    }
+
     // MARK: - TMDB credentials and cache lifecycle
 
     func saveTMDBCredential(_ input: String) async throws {
@@ -437,6 +518,7 @@ final class AppStore {
         do { try Self.removeRetiredFanartCache() } catch { failed = true }
         do { try await detailPosters.clearCache() } catch { failed = true }
         do { try await introClient.clearCache() } catch { failed = true }
+        do { try await ratingsClient.clearCache() } catch { failed = true }
         await ArtworkPipeline.shared.clearCache()
         cacheVersions = [:]
         tmdbRevision = UUID()
@@ -596,6 +678,16 @@ final class AppStore {
         try await withTMDB { try await $0.filmography(personID: personID, credential: $1) }
     }
 
+    /// TMDB's profile, completed from TheTVDB when a key is set and TMDB leaves gaps.
+    func personProfile(personID: Int) async throws -> PersonProfile {
+        let profile = try await withTMDB { try await $0.personProfile(personID: personID, credential: $1) }
+        let incomplete = profile.biography == nil || profile.birthday == nil || profile.placeOfBirth == nil
+        guard incomplete, tvdbCredentials != nil, let tvdbID = profile.tvdbID,
+            let details = try? await withTVDB({ try await $0.personDetails(tvdbID, credentials: $1) })
+        else { return profile }
+        return profile.filling(from: details)
+    }
+
     func episodes(for media: MediaItem, details: MetadataEnrichment, season: Int) async throws -> [Episode] {
         let revision = metadataConfigurationRevision
         if let id = details.tvdbID, tvdbCredentials != nil {
@@ -651,6 +743,8 @@ final class AppStore {
         ) { catalog in
             catalogSource(catalog)
         }
+        // The shelf widget can show Home catalogs.
+        WidgetPublisher.shared.schedule(store: self)
     }
 
     func metadata(for item: MediaItem) async -> (MediaItem, String?) {
@@ -691,7 +785,7 @@ final class AppStore {
     }
     // MARK: - Library and watched state
 
-    func contains(_ item: MediaItem) -> Bool { library.items.contains { $0.isSameTitle(as: item) } }
+    func contains(_ item: MediaItem) -> Bool { savedTitles.contains(item) }
 
     func setWatched(_ watched: Bool, for item: MediaItem, episode: Episode? = nil) {
         let revision = trakt.connectionRevision
@@ -708,6 +802,7 @@ final class AppStore {
             }
             if revision == trakt.connectionRevision { trakt.enqueue(change, history: history) }
         }
+        userDataChanged()
     }
 
     func syncSimkl() async { await simkl.synchronize(history: history, force: true) }
@@ -729,10 +824,12 @@ final class AppStore {
     func disconnectTrakt() async { await trakt.disconnect(history: history) }
     func removeFromContinueWatching(_ item: MediaItem) {
         history.removeFromContinueWatching(for: item)
+        userDataChanged()
     }
 
     func recordPlayback(media: MediaItem, video: VideoSelection, update: PlaybackProgressUpdate) {
         history.record(media: media, videoID: video.id, subtitle: video.title, update: update)
+        WidgetPublisher.shared.schedule(store: self)
     }
 
     func scrobble(_ event: TraktScrobbleEvent, media: MediaItem, videoID: String) {
@@ -743,25 +840,66 @@ final class AppStore {
     func flushWatchProgress() async { await history.flush() }
 
     func toggleLibrary(_ item: MediaItem) {
-        var proposed = library
-        if contains(item) {
-            proposed.items.removeAll { $0.isSameTitle(as: item) }
-        } else {
-            proposed.items.insert(item, at: 0)
+        commitLibrary { current in
+            var proposed = current
+            if current.items.contains(where: { $0.isSameTitle(as: item) }) {
+                proposed.items.removeAll { $0.isSameTitle(as: item) }
+            } else {
+                proposed.items.insert(item, at: 0)
+            }
+            return proposed
         }
-        commitLibrary(proposed)
     }
 
-    private func commitLibrary(_ proposed: LibraryState) {
+    /// Adds a title unless it is already saved.
+    func addToLibrary(_ item: MediaItem) {
+        commitLibrary { current in
+            guard !current.items.contains(where: { $0.isSameTitle(as: item) }) else { return nil }
+            var proposed = current
+            proposed.items.insert(item, at: 0)
+            return proposed
+        }
+    }
+
+    /// Saves a library change in the background and shows it once it is on disk, so the screen never
+    /// shows a change that wasn't saved. `change` starts from the previous change's result, which
+    /// keeps quick taps in order; it returns nil to skip saving. Sync merges pass `notify: false`,
+    /// since announcing them would only schedule another sync.
+    private func commitLibrary(
+        notify: Bool = true, _ change: @escaping @MainActor (LibraryState) -> LibraryState?
+    ) {
         guard libraryWritable else {
             localStorageError =
                 "Your library couldn’t be read. Restore a valid backup before making changes."
-
             return
         }
-        do { try LibraryStorage.repository.commit(proposed, current: &library) } catch {
-            localStorageError = error.localizedDescription
+        let previous = librarySave
+        librarySave = Task {
+            await previous?.value
+            // A change queued while loading must not overwrite a library that turned out unreadable.
+            guard self.libraryWritable else {
+                self.localStorageError =
+                    "Your library couldn’t be read. Restore a valid backup before making changes."
+                return
+            }
+            guard let proposed = change(self.library) else { return }
+            do {
+                self.library = try await self.libraryWriter.save(proposed)
+                if notify { self.userDataChanged() }
+            } catch {
+                self.localStorageError = error.localizedDescription
+            }
         }
+    }
+
+    /// Waits for library changes still being saved.
+    func flushLibrary() async { await librarySave?.value }
+
+    /// Returns once saved watch progress and the library have been read. Anything that would act on
+    /// them being empty, such as sync, the widgets or a link opened at launch, waits for this first.
+    func waitUntilLoaded() async {
+        await history.waitUntilLoaded()
+        await libraryLoad?.value
     }
 
     func exportLibrary() throws -> Data {
@@ -769,11 +907,81 @@ final class AppStore {
         return try LibraryRepository.encode(library)
     }
 
-    func restoreLibrary(_ data: Data) throws {
+    // MARK: - Folder sync and widgets
+
+    /// Library or watch state changed: sync soon and refresh the widgets.
+    func userDataChanged() {
+        folderSync.scheduleSync(store: self)
+        WidgetPublisher.shared.schedule(store: self)
+    }
+
+    /// What a sync reads from this device. `progressRevision` guards against applying a merge
+    /// over a change made while the merge ran.
+    var syncState: (library: LibraryState, progress: WatchProgress, progressRevision: Int) {
+        (library, history.state, history.revision)
+    }
+
+    var syncedSettings: SyncedSettings {
+        SyncedSettings(
+            showSkipIntro: showSkipIntro, showContinueWatching: showContinueWatching,
+            playerGestures: playerGestures,
+            subtitleLanguage: UserDefaults.standard.string(forKey: "subdlLanguage"),
+            catalogPreferences: catalogPreferences, heroCatalogID: heroCatalogID)
+    }
+
+    /// Applies merged sync results, skipping any part that changed locally while the merge ran.
+    func applySync(
+        library merged: LibraryState, expectedLibrary: LibraryState, progress: WatchProgress,
+        progressRevision: Int, settings: SyncedSettings?, addons syncedAddons: [InstalledAddon]?
+    ) async {
+        if libraryWritable {
+            commitLibrary(notify: false) { current in
+                current.items == expectedLibrary.items && merged.items != current.items ? merged : nil
+            }
+            await flushLibrary()
+        }
+        if progress.records.map(\.id) != history.state.records.map(\.id)
+            || progress.records.map(\.updatedAt) != history.state.records.map(\.updatedAt)
+            || progress.records.map(\.hiddenFromContinueWatching)
+                != history.state.records.map(\.hiddenFromContinueWatching)
+        {
+            _ = await history.applySynced(progress, ifRevision: progressRevision)
+        }
+        if let settings, settings != syncedSettings {
+            if showSkipIntro != settings.showSkipIntro { showSkipIntro = settings.showSkipIntro }
+            if showContinueWatching != settings.showContinueWatching {
+                showContinueWatching = settings.showContinueWatching
+            }
+            if playerGestures != settings.playerGestures { playerGestures = settings.playerGestures }
+            if let language = settings.subtitleLanguage {
+                UserDefaults.standard.set(language, forKey: "subdlLanguage")
+            }
+            if catalogPreferences != settings.catalogPreferences {
+                saveCatalogPreferences(settings.catalogPreferences)
+            }
+            if heroCatalogID != settings.heroCatalogID { setHeroCatalog(settings.heroCatalogID) }
+        }
+        if let syncedAddons, addonsWritable {
+            let allowed = syncedAddons.filter { !AddonPolicy.isCinemeta($0) }
+            if allowed != addons {
+                // Removing, reordering or toggling installed add-ons applies at once.
+                if newSyncedAddons(in: allowed).isEmpty {
+                    saveAddons(allowed)
+                } else {
+                    pendingSyncedAddons = allowed
+                }
+            }
+        }
+        WidgetPublisher.shared.schedule(store: self)
+    }
+
+    func restoreLibrary(_ data: Data) async throws {
+        await flushLibrary()
         let restored = try LibraryRepository.decode(data)
         let merged = LibraryRepository.merging(restored, into: library)
-        try LibraryStorage.repository.commit(merged, current: &library)
+        library = try await libraryWriter.save(merged)
         libraryWritable = true
+        userDataChanged()
     }
 }
 

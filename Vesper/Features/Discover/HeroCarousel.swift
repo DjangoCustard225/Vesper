@@ -35,7 +35,7 @@ struct HeroCarousel: View {
     let items: [MediaItem]
     let height: CGFloat
     let isLandscape: Bool
-    @Binding var horizontalPage: CGFloat
+    let horizontalPage: ImmersiveArtworkPage
     @State private var selectedID: String?
     @State private var presentations: [String: HeroPresentation] = [:]
     @State private var presentationRevision: String?
@@ -69,12 +69,12 @@ struct HeroCarousel: View {
         .onScrollGeometryChange(for: CGFloat.self) { geometry in
             (geometry.contentOffset.x + geometry.contentInsets.leading) / max(geometry.containerSize.width, 1)
         } action: { _, page in
-            horizontalPage = page
+            horizontalPage.value = page
         }
         .onChange(of: items.map(\.key), initial: true) { _, keys in
             if !keys.contains(selectedID ?? "") {
                 selectedID = keys.first
-                horizontalPage = 0
+                horizontalPage.value = 0
             }
         }
         .task(

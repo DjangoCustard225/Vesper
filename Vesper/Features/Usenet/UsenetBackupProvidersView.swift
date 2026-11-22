@@ -55,7 +55,7 @@ private struct UsenetBackupProviderEditor: View {
     @State private var port = "563"
     @State private var username = ""
     @State private var password = ""
-    @State private var connections = 8.0
+    @State private var connections = Double(UsenetProvider.defaultConnections)
     @State private var error: String?
     var body: some View {
         Form {
@@ -74,7 +74,7 @@ private struct UsenetBackupProviderEditor: View {
         .textInputAutocapitalization(.never).autocorrectionDisabled()
         .navigationTitle("Provider").navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            ToolbarItem(placement: .cancellationAction) { Button(role: .close) { dismiss() } }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
                     do {

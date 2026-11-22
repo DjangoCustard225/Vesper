@@ -9,7 +9,19 @@ import UsenetEngine
 @MainActor @Observable final class DownloadManager {
     static let shared = DownloadManager()
     static let sessionID = "app.vesper.downloads"
-    private(set) var library = DownloadLibrary()
+    private(set) var library = DownloadLibrary() {
+        didSet {
+            // Library writes are frequent (byte counts while downloading); publish the completed
+            // identities only when they change, so posters and badges don't redraw on each write.
+            let aliases = Set(
+                library.records.lazy.filter { $0.phase == .completed }.flatMap {
+                    MediaIdentity.aliases($0.media)
+                })
+            if aliases != completedAliases { completedAliases = aliases }
+        }
+    }
+    /// Identity aliases of every completed download, for constant-time "is it downloaded" checks.
+    private(set) var completedAliases: Set<String> = []
     private(set) var disk = DownloadDiskState()
     var error: String?
     private(set) var networkAvailable = false
@@ -105,6 +117,11 @@ import UsenetEngine
     var allowsCellular: Bool { library.allowsCellular }
     var canTransfer: Bool { networkAvailable && (!cellularNetwork || allowsCellular) }
     var completed: [DownloadRecord] { records.filter { $0.phase == .completed } }
+    /// Whether a completed download is the same title as `item`. Unlike scanning `completed`,
+    /// this only invalidates a view when the set of completed titles changes.
+    func hasCompletedTitle(_ item: MediaItem) -> Bool {
+        !completedAliases.isDisjoint(with: MediaIdentity.aliases(item))
+    }
     var usedBytes: Int64 { disk.savedBytes }
     var partialBytes: Int64 {
         max(
@@ -241,6 +258,13 @@ import UsenetEngine
     func requestPause(_ id: UUID) { submit { await self.pause(id) } }
     func requestResume(_ id: UUID) { submit { await self.resume(id) } }
     func requestRemove(_ ids: Set<UUID>) { submit { await self.remove(ids) } }
+    /// A presenter dismisses only after the serialized removal has actually committed.
+    func removeDownloads(_ ids: Set<UUID>) async -> Bool {
+        (try? await schedule {
+            await self.remove(ids)
+            return self.records.allSatisfy { !ids.contains($0.id) }
+        }.value) ?? false
+    }
     private func pause(_ id: UUID) async {
         guard let record = records.first(where: { $0.id == id }), record.phase != .completed else { return }
         guard let task = tasks[id] else {
@@ -313,17 +337,19 @@ import UsenetEngine
         updateUsenetIdleTimer()
         guard canTransfer else { return }
         retryWake?.cancel(); retryWake = nil
+        let now = Date()
         let usenetActive = records.contains { $0.phase.isActive && DownloadPolicy.supportsUsenet($0.source) }
         var reservedUsenet = usenetActive
         let eligible = records.filter { record in
             guard record.phase == .queued else { return true }
+            guard (record.retryAt ?? .distantPast) <= now else { return false }
             guard canExecuteInProcess else { return false }
             guard DownloadPolicy.supportsUsenet(record.source) else { return true }
             guard usenetPlaybackReservation == nil, !reservedUsenet else { return false }
             reservedUsenet = true; return true
         }
-        for record in DownloadPolicy.next(eligible) { await prepare(record) }
-        if let next = records.filter({ $0.phase == .queued }).compactMap(\.retryAt).filter({ $0 > Date() })
+        for record in DownloadPolicy.next(eligible, now: now) { await prepare(record) }
+        if let next = records.filter({ $0.phase == .queued }).compactMap(\.retryAt).filter({ $0 > now })
             .min()
         {
             retryWake = Task { [weak self] in
@@ -1136,10 +1162,5 @@ import UsenetEngine
         guard let name = records.lazy.compactMap({ $0.artwork[raw] }).first(where: disk.artwork.contains)
         else { return nil }
         return DownloadFiles.artwork.appendingPathComponent(name)
-    }
-    func offlineEpisode(_ record: DownloadRecord) -> Episode? {
-        record.episode.map {
-            $0.offlineSnapshot(thumbnail: localArtwork($0.thumbnail, record: record)?.absoluteString)
-        }
     }
 }

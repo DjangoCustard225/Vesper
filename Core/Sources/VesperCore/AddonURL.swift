@@ -14,7 +14,7 @@ public enum AddonError: LocalizedError, Equatable {
         case .invalidResponse: "The add-on returned an unreadable response."
         case .network: "Couldn’t connect. Check your connection and the add-on address."
         case .unsupportedStream:
-            "This source can’t be opened in an external player. Choose an HTTP video source or an external link."
+            "This source type isn’t supported. Choose another source."
         }
     }
 }
@@ -67,6 +67,34 @@ public enum AddonURL {
             + (extra.isEmpty ? "" : "/" + extra) + ".json"
         guard let url = c.url else { throw AddonError.invalidURL }
         return url
+    }
+
+    /// True for a plain-HTTP address beyond this device and the local network. Anyone on the way can
+    /// read such a request, including tokens that add-on links often carry.
+    public static func isUnencryptedRemote(_ url: URL) -> Bool {
+        guard url.scheme?.lowercased() == "http", let host = url.host?.lowercased(), !host.isEmpty else {
+            return false
+        }
+        return !isLocal(host)
+    }
+
+    /// This device, a private network address, or a local-only name.
+    static func isLocal(_ host: String) -> Bool {
+        let host = host.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+        if host == "localhost"
+            || [".local", ".localhost", ".lan", ".home.arpa"].contains(where: host.hasSuffix)
+        {
+            return true
+        }
+        let octets = host.split(separator: ".", omittingEmptySubsequences: false).map { UInt8($0) }
+        if octets.count == 4, let a = octets[0], let b = octets[1], octets.allSatisfy({ $0 != nil }) {
+            return a == 10 || a == 127 || (a == 172 && (16...31).contains(b)) || (a == 192 && b == 168)
+                || (a == 169 && b == 254) || (a == 100 && (64...127).contains(b))
+        }
+        if host.contains(":") {
+            return host == "::1" || host.hasPrefix("fe80:") || host.hasPrefix("fc") || host.hasPrefix("fd")
+        }
+        return false
     }
 
     public static func configure(_ manifest: URL) -> URL? {

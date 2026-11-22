@@ -47,6 +47,7 @@ struct PosterShelf: View {
     let items: [MediaItem]
     var horizontalPadding: CGFloat = 20
     @State private var prefetch = ArtworkPrefetchState()
+    @State private var visibleItem: String?
     @Environment(\.displayScale) private var displayScale
 
     var body: some View {
@@ -59,12 +60,14 @@ struct PosterShelf: View {
                         PosterCard(item: item, width: Design.posterWidth)
                     }.buttonStyle(.plain)
                         .modifier(MediaContextMenu(item: item))
+                        .id(item.key)
                         .onScrollVisibilityChange(threshold: 0.01) { active in
                             prefetch.visibility(active, key: item.key, items: items)
                         }
                 }
-            }.padding(.horizontal, horizontalPadding)
+            }.scrollTargetLayout().padding(.horizontal, horizontalPadding)
         }.frame(height: Design.posterWidth * 1.5)
+            .scrollPosition(id: $visibleItem, anchor: .leading)
             .scrollIndicators(.hidden).appScrollEdges()
             .onScrollVisibilityChange(threshold: 0.01) { prefetch.isVisible = $0 }
             .modifier(PosterShelfPrefetch(prefetch: prefetch, items: items, scale: displayScale))

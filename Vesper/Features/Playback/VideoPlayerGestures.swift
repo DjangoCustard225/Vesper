@@ -171,6 +171,7 @@ struct SystemVolumeAttachment: UIViewRepresentable {
 struct PlayerAdjustmentCapture: UIViewRepresentable {
     let brightnessEnabled: Bool
     let volumeEnabled: Bool
+    let excludedFrames: [CGRect]
     let began: (PlayerSwipeSide) -> Void
     let changed: (PlayerSwipeSide, CGFloat) -> Void
     let ended: () -> Void
@@ -193,6 +194,8 @@ struct PlayerAdjustmentCapture: UIViewRepresentable {
 @MainActor final class PlayerAdjustmentCaptureView: UIView, UIGestureRecognizerDelegate {
     private let pan = UIPanGestureRecognizer()
     private weak var installedWindow: UIWindow?
+    private weak var playerView: UIView?
+    private var excludedFrames: [CGRect] = []
     private var brightnessEnabled = false
     private var volumeEnabled = false
     private var began: ((PlayerSwipeSide) -> Void)?
@@ -218,10 +221,19 @@ struct PlayerAdjustmentCapture: UIViewRepresentable {
         guard installedWindow !== window else { return }
         detach()
         installedWindow = window
+        var responder: UIResponder? = self
+        while let current = responder {
+            if let controller = current as? UIViewController {
+                playerView = controller.view
+                break
+            }
+            responder = current.next
+        }
         window?.addGestureRecognizer(pan)
     }
 
     func configure(_ capture: PlayerAdjustmentCapture) {
+        excludedFrames = capture.excludedFrames
         brightnessEnabled = capture.brightnessEnabled
         volumeEnabled = capture.volumeEnabled
         began = capture.began
@@ -236,6 +248,7 @@ struct PlayerAdjustmentCapture: UIViewRepresentable {
         pendingSide = nil
         installedWindow?.removeGestureRecognizer(pan)
         installedWindow = nil
+        playerView = nil
     }
 
     @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
@@ -259,7 +272,10 @@ struct PlayerAdjustmentCapture: UIViewRepresentable {
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         pendingSide = nil
-        guard let window = installedWindow else { return false }
+        guard let window = installedWindow, let playerView, let touchedView = touch.view,
+            touchedView.isDescendant(of: playerView),
+            allowsPlayerGestureTouch(touch, excluding: excludedFrames)
+        else { return false }
         // Select the side from the first touch in full-window coordinates.
         let side: PlayerSwipeSide = touch.location(in: window).x < window.bounds.midX ? .brightness : .volume
         guard side == .brightness ? brightnessEnabled : volumeEnabled else { return false }
@@ -283,7 +299,7 @@ private func allowsPlayerGestureTouch(_ touch: UITouch, excluding frames: [CGRec
     guard !frames.contains(where: { $0.contains(point) }) else { return false }
     var view = touch.view
     while let current = view {
-        if current is UIControl { return false }
+        if current is UIControl || current is UIScrollView { return false }
         view = current.superview
     }
     return true

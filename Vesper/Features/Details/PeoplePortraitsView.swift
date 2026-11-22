@@ -14,6 +14,8 @@ struct PeoplePortraitsView: View {
     private let people: [Person]
     private let nameLineLimit: Int
     private let isCrew: Bool
+    /// The full-page list opened from the section's chevron, instead of the horizontal row.
+    private var showsGrid = false
     @State private var selectedPerson: Person?
     @State private var pendingTitle: MediaItem?
     @State private var selectedTitle: MediaItem?
@@ -46,6 +48,14 @@ struct PeoplePortraitsView: View {
         }
     }
 
+    private init(copying source: PeoplePortraitsView) {
+        title = source.title
+        people = source.people
+        nameLineLimit = source.nameLineLimit
+        isCrew = source.isCrew
+        showsGrid = true
+    }
+
     private var visiblePeople: [Person] { people.filter { !failedPortraitURLs.contains($0.portraitURL) } }
 
     var body: some View {
@@ -75,22 +85,44 @@ struct PeoplePortraitsView: View {
         }
     }
 
-    private var portraits: some View {
+    @ViewBuilder private var portraits: some View {
+        if showsGrid { grid } else { row }
+    }
+
+    private var grid: some View {
+        ScrollView {
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 110), spacing: 18, alignment: .top)],
+                alignment: .leading,
+                spacing: 24
+            ) {
+                ForEach(visiblePeople) { person in personButton(person) }
+            }.padding(20).frame(maxWidth: 1100).frame(maxWidth: .infinity)
+        }
+        .appBackground().navigationTitle(title).toolbar(.visible, for: .navigationBar)
+    }
+
+    private func personButton(_ person: Person) -> some View {
+        Button {
+            selectedPerson = person
+        } label: {
+            portraitCard(person)
+        }
+        .accessibilityHint(isCrew ? "Opens crew roles" : "Opens movies and shows featuring this actor")
+        .buttonStyle(.plain).accessibilityElement(children: .combine)
+    }
+
+    private var row: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(title).font(.title2.bold())
+            NavigationLink {
+                PeoplePortraitsView(copying: self)
+            } label: {
+                CatalogHeading(title: title)
+            }
+            .buttonStyle(.plain).accessibilityHint("Shows everyone in \(title)")
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 18) {
-                    ForEach(visiblePeople) { person in
-                        Button {
-                            selectedPerson = person
-                        } label: {
-                            portraitCard(person)
-                        }
-                        .accessibilityHint(
-                            isCrew ? "Opens crew roles" : "Opens movies and shows featuring this actor"
-                        )
-                        .buttonStyle(.plain).accessibilityElement(children: .combine)
-                    }
+                    ForEach(visiblePeople) { person in personButton(person) }
                 }.padding(.horizontal, 24)
             }.scrollIndicators(.hidden).appScrollEdges().padding(.horizontal, -24)
         }
@@ -167,7 +199,9 @@ struct PeoplePortraitsView: View {
                         Link("View profile", destination: person.website)
                     }.multilineTextAlignment(.center).frame(maxWidth: .infinity).padding(24)
                 }.appScrollEdges().navigationTitle(title).navigationBarTitleDisplayMode(.inline)
-                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) { Button(role: .close) { dismiss() } }
+                    }
             }.fontDesign(.default)
         }
     }

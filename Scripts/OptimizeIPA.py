@@ -3,6 +3,7 @@ import argparse
 from copy import copy
 import hashlib
 import os
+import plistlib
 from pathlib import Path
 import shutil
 import struct
@@ -11,6 +12,7 @@ import sys
 import tempfile
 import zipfile
 
+from AdHocSign import sign, verify_signature
 from VerifyIPA import LinkeditAlignmentError, arm64_commands, verify
 
 
@@ -83,6 +85,32 @@ def runtime_identity(data):
     return identity
 
 
+def signing_targets(archive, root):
+    """Maps the app and extension executables to their identifier, entitlements and Info.plist."""
+    targets = {}
+    for name in archive.namelist():
+        parts = Path(name).parts
+        is_app = len(parts) == 3 and parts[1].endswith(".app") and parts[2] == "Info.plist"
+        is_extension = (len(parts) == 5 and parts[2] == "PlugIns" and parts[3].endswith(".appex")
+                        and parts[4] == "Info.plist")
+        if not (is_app or is_extension):
+            continue
+        info_bytes = archive.read(name)
+        info = plistlib.loads(info_bytes)
+        executable = info["CFBundleExecutable"]
+        source = root / "Vesper/Vesper.entitlements" if is_app else root / executable / f"{executable}.entitlements"
+        entitlements = plistlib.loads(source.read_bytes()) if source.exists() else {}
+        targets[str(Path(name).parent / executable)] = (info["CFBundleIdentifier"], entitlements, info_bytes)
+    return targets
+
+
+def is_bundle_signature(name):
+    """Signature resources of the app or an extension; they go stale when binaries are stripped."""
+    parts = Path(name).parts
+    return (len(parts) >= 3 and parts[2] == "_CodeSignature") or (
+        len(parts) >= 5 and parts[2] == "PlugIns" and parts[4] == "_CodeSignature")
+
+
 def optimize(ipa, root):
     # Audit private symbols before stripping them from release binaries.
     verify(ipa, root, unstripped=True, write_checksum=False)
@@ -96,13 +124,15 @@ def optimize(ipa, root):
             names = [item.filename for item in entries]
             if len(names) != len(set(names)):
                 raise ValueError("Duplicate IPA entries")
-            if any((len(Path(name).parts) >= 3 and Path(name).parts[2] == "_CodeSignature")
-                   or name.endswith("embedded.mobileprovision") for name in names):
+            if any(name.endswith("embedded.mobileprovision") for name in names):
                 raise ValueError("Optimize the unsigned IPA before signing")
+            targets = signing_targets(source, root)
             original_unpacked = sum(item.file_size for item in entries)
             with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as destination:
                 destination.comment = source.comment
                 for entry in entries:
+                    if is_bundle_signature(entry.filename):
+                        continue
                     data = source.read(entry)
                     if data[:4] == b"\xcf\xfa\xed\xfe":
                         before = runtime_identity(data)
@@ -125,6 +155,11 @@ def optimize(ipa, root):
                             if len(result) < len(data):
                                 print(f"Stripped {entry.filename}: {len(data) / 2**20:.2f} → {len(result) / 2**20:.2f} MiB", flush=True)
                                 data = result
+                        if entry.filename in targets:
+                            # Sign last so installers find the entitlements, such as the widget's App Group.
+                            identifier, entitlements, info = targets[entry.filename]
+                            data = sign(data, identifier, entitlements, info)
+                            verify_signature(data)
                     item = copy(entry)
                     item.compress_type = zipfile.ZIP_DEFLATED
                     destination.writestr(item, data, compresslevel=9)

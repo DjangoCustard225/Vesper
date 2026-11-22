@@ -113,7 +113,7 @@ private final class UsenetProviderDraft {
         let saved = UsenetService.shared.provider
         host = saved?.host ?? ""; port = String(saved?.port ?? 563)
         username = saved?.username ?? ""; password = saved?.password ?? ""
-        connections = saved?.connections ?? 8
+        connections = saved?.connections ?? UsenetProvider.defaultConnections
         error = UsenetService.shared.storageError
     }
 

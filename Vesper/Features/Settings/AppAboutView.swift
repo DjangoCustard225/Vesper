@@ -47,7 +47,7 @@ struct CreditsView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("AetherEngine").font(.headline)
                     Text(
-                        "AVPlayer playback uses AetherEngine, licensed under LGPL 3.0 with an App Store / DRM exception."
+                        "Playback uses AetherEngine, licensed under LGPL 3.0 with an App Store / DRM exception."
                     )
                     .foregroundStyle(.secondary)
                     Link(

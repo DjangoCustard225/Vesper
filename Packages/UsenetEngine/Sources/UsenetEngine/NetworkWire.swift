@@ -60,7 +60,7 @@ final class NetworkWire: NNTPWire, @unchecked Sendable {
     func receive() async throws -> Data {
         try await withCheckedThrowingContinuation { continuation in
             let (id, result) = register(continuation)
-            connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) {
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 256 * 1024) {
                 [weak self] data, _, _, error in
                 if error == nil, let data, !data.isEmpty {
                     result.finish(.success(data))

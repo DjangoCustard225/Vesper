@@ -7,7 +7,11 @@ import VesperCore
 
 @MainActor @Observable
 final class AetherPlaybackController {
-    private(set) var timeline = PlaybackTimeline(elapsed: 0, duration: 0, isSeekable: false)
+    private(set) var timeline = PlaybackTimeline(elapsed: 0, duration: 0, isSeekable: false) {
+        didSet { if isSeekable != timeline.isSeekable { isSeekable = timeline.isSeekable } }
+    }
+    /// Mirrors `timeline.isSeekable` so controls that only need it don't redraw on every tick.
+    private(set) var isSeekable = false
     private(set) var isPlaying = false
     private(set) var isBuffering = true
     private(set) var hasEnded = false
@@ -19,8 +23,8 @@ final class AetherPlaybackController {
     private(set) var speed: Float = 1
     private(set) var isBoosting = false
     private(set) var fillsScreen = false
-    private(set) var subtitleCues: [SubtitleCue] = []
-    private(set) var subtitleTime: Double = 0
+    /// Cues on screen now. Published only when the set changes, not on every clock tick.
+    private(set) var activeSubtitleCues: [SubtitleCue] = []
     let pictureInPicture = NativePictureInPicture()
     var pictureInPictureState: AutomaticPictureInPicture.State { pictureInPicture.state }
     private(set) var videoAspect: CGFloat = 16 / 9
@@ -50,6 +54,7 @@ final class AetherPlaybackController {
     @ObservationIgnored private let restorePresentation: PlaybackRestoration?
     @ObservationIgnored private let idleTimerID = UUID()
     @ObservationIgnored private var wantsPlayback = true
+    @ObservationIgnored private var resumesAfterInterruption = false
     @ObservationIgnored private var progressReporter = PlaybackProgressReporter()
 
     init(
@@ -208,6 +213,16 @@ final class AetherPlaybackController {
         }
     }
 
+    @ObservationIgnored private var downloadedSubtitles: [URL] = []
+    func addSubtitle(url: URL, name: String, language: String) {
+        guard let engine, !stopped else { try? FileManager.default.removeItem(at: url); return }
+        let track = engine.addExternalSubtitleTrack(
+            ExternalSubtitleTrack(url: url, name: name, language: language))
+        downloadedSubtitles.append(url)
+        engine.selectSubtitleTrack(index: track.id)
+        synchronize()
+    }
+
     func selectSubtitle(_ id: Int32) {
         guard id == -1 || subtitleTracks.contains(where: { $0.id == id }), !stopped else { return }
         if id == -1 { engine?.clearSubtitle() } else { engine?.selectSubtitleTrack(index: Int(id)) }
@@ -252,11 +267,16 @@ final class AetherPlaybackController {
 
     func enteredBackground() {
         guard !stopped else { return }
-        pictureInPicture.configure(owner: self)
+        synchronize()
+        reportProgress(force: true)
         pictureInPicture.enteredBackground()
     }
 
-    func enteredForeground() { pictureInPicture.enteredForeground() }
+    func enteredForeground() {
+        guard !stopped else { return }
+        pictureInPicture.enteredForeground()
+        synchronize()
+    }
 
     func restorePictureInPicturePresentation(completion: @escaping @MainActor (Bool) -> Void) {
         guard !stopped, let restorePresentation else {
@@ -305,10 +325,13 @@ final class AetherPlaybackController {
         nowPlaying = nil
         let engine = engine
         let lease = audioSessionLease
+        let subtitles = downloadedSubtitles
+        downloadedSubtitles.removeAll()
         self.engine = nil
         audioSessionLease = nil
         pictureInPicture.invalidate {
             engine?.stop()
+            for url in subtitles { try? FileManager.default.removeItem(at: url) }
             if let lease, PlaybackAudioOwnership.release(lease) {
                 try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             }
@@ -321,27 +344,41 @@ final class AetherPlaybackController {
             fail("This source could not be played. Try another source or an external player.")
             return
         }
-        hasEnded = engine.state == .ended
+        // Observation notifies on every assignment, equal or not; this runs several times a second,
+        // so only changed values are written and unchanged ones don't redraw the player.
+        let ended = engine.state == .ended
+        if hasEnded != ended { hasEnded = ended }
         let seekable = engine.canSeek || (hasEnded && timeline.isSeekable)
-        timeline = PlaybackTimeline(
+        let newTimeline = PlaybackTimeline(
             elapsed: engine.isSeeking ? engine.seekTarget ?? engine.currentTime : engine.currentTime,
             duration: engine.duration, isSeekable: seekable)
-        isBuffering = engine.isBuffering || (!engine.isSessionReady && !hasEnded)
-        isPlaying = engine.state == .playing || (engine.state == .seeking && wantsPlayback)
+        if timeline != newTimeline { timeline = newTimeline }
+        let buffering = engine.isBuffering || (!engine.isSessionReady && !hasEnded)
+        if isBuffering != buffering { isBuffering = buffering }
+        let playing = engine.state == .playing || (engine.state == .seeking && wantsPlayback)
+        if isPlaying != playing { isPlaying = playing }
         if engine.videoRoute == .remoteBypass {
             synchronizeNativeAudio(engine.currentAVPlayer?.currentItem)
         } else {
-            audioTracks = engine.audioTracks.compactMap(Self.track)
-            selectedAudio = engine.activeAudioTrackIndex.flatMap(Int32.init(exactly:)) ?? -1
+            let audio = engine.audioTracks.compactMap(Self.track)
+            if audioTracks != audio { audioTracks = audio }
+            let selected = engine.activeAudioTrackIndex.flatMap(Int32.init(exactly:)) ?? -1
+            if selectedAudio != selected { selectedAudio = selected }
         }
-        subtitleTracks = engine.subtitleTracks.compactMap(Self.track)
-        selectedSubtitle = engine.activeSubtitleTrackIndex.flatMap(Int32.init(exactly:)) ?? -1
-        subtitleCues = engine.videoRoute == .remoteBypass ? [] : engine.subtitleCues
-        subtitleTime = engine.sourceTime
+        let subtitles = engine.subtitleTracks.compactMap(Self.track)
+        if subtitleTracks != subtitles { subtitleTracks = subtitles }
+        let subtitle = engine.activeSubtitleTrackIndex.flatMap(Int32.init(exactly:)) ?? -1
+        if selectedSubtitle != subtitle { selectedSubtitle = subtitle }
+        let time = engine.sourceTime
+        let active =
+            engine.videoRoute == .remoteBypass
+            ? [] : engine.subtitleCues.filter { $0.startTime <= time && time < $0.endTime }
+        if active.map(\.id) != activeSubtitleCues.map(\.id) { activeSubtitleCues = active }
         if engine.sourceVideoHeight > 0 {
-            videoAspect =
+            let aspect =
                 CGFloat(engine.sourceVideoWidth) * CGFloat(engine.sourceVideoPixelAspectRatio)
                 / CGFloat(engine.sourceVideoHeight)
+            if videoAspect != aspect { videoAspect = aspect }
         }
         if hasEnded {
             wantsPlayback = false
@@ -433,12 +470,35 @@ final class AetherPlaybackController {
         observers.append(
             center.addObserver(
                 forName: AVAudioSession.didBecomeInactiveNotification, object: nil, queue: .main
-            ) { [weak self] _ in
+            ) { [weak self] notification in
+                // Another app (a call, Siri, an alarm) took the session; remember to offer resuming.
+                let context =
+                    notification.userInfo?[AVAudioSession.deactivationContextKey]
+                    as? AVAudioSession.DeactivationContext
+                let interrupted = context?.interruptionContext != nil
                 Task { @MainActor in
                     guard let self, !self.stopped else { return }
+                    self.resumesAfterInterruption = interrupted && (self.isPlaying || self.wantsPlayback)
                     if let lease = self.audioSessionLease { _ = PlaybackAudioOwnership.release(lease) }
                     self.audioSessionLease = nil
                     self.pause()
+                }
+            })
+        // When the interruption ends, resume only if the system recommends it and the video was
+        // playing when it began.
+        observers.append(
+            center.addObserver(
+                forName: AVAudioSession.resumptionRecommendationNotification, object: nil, queue: .main
+            ) { [weak self] notification in
+                let context =
+                    notification.userInfo?[AVAudioSession.resumptionContextKey]
+                    as? AVAudioSession.ResumptionContext
+                let recommended = context?.recommendation == .shouldResume
+                Task { @MainActor in
+                    guard let self, !self.stopped else { return }
+                    let resume = self.resumesAfterInterruption && recommended
+                    self.resumesAfterInterruption = false
+                    if resume, !self.isPlaying { self.togglePlayback() }
                 }
             })
         observers.append(

@@ -32,6 +32,18 @@ struct BuiltInPlayerPresentation: UIViewControllerRepresentable {
         private var previousOrientation = UIInterfaceOrientation.unknown
         private weak var playbackScene: UIWindowScene?
 
+        override func viewDidLoad() {
+            super.viewDidLoad()
+            for name in [UIApplication.didBecomeActiveNotification, UIScene.didActivateNotification] {
+                NotificationCenter.default.addObserver(
+                    self, selector: #selector(resumePresentation), name: name, object: nil)
+            }
+        }
+
+        isolated deinit { NotificationCenter.default.removeObserver(self) }
+
+        @objc private func resumePresentation() { synchronize() }
+
         override func viewDidAppear(_ animated: Bool) {
             super.viewDidAppear(animated)
             synchronize()
@@ -47,7 +59,9 @@ struct BuiltInPlayerPresentation: UIViewControllerRepresentable {
                 if player.rootView.players != update.players { player.rootView.players = update.players }
                 return
             }
-            guard viewIfLoaded?.window != nil else { return }
+            guard UIApplication.shared.applicationState == .active,
+                viewIfLoaded?.window?.windowScene?.activationState == .foregroundActive
+            else { return }
             // Present from the active sheet or navigation controller containing the sources.
             var presenter: UIViewController = self
             while let parent = presenter.parent { presenter = parent }

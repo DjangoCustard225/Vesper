@@ -4,6 +4,8 @@ public enum NetworkOperation: String, Codable, Sendable {
     case tmdb, tvdb, trakt, manifest, catalog, metadata, streams, artwork
     case indexer
     case introSegments
+    case ratings
+    case usenetStream
     case traktScrobbleStart, traktScrobblePause, traktScrobbleStop
 
     public init(from decoder: Decoder) throws {
@@ -41,6 +43,43 @@ public struct DiagnosticEvent: Codable, Sendable {
     public let outcome: DiagnosticOutcome
     public var artworkStage: ArtworkStage? = nil
     public var isPrefetch: Bool? = nil
+    public var usenet: UsenetStreamDiagnostics? = nil
+}
+
+/// One Usenet playback session's performance. Counts and timings only, never titles or hosts.
+public struct UsenetStreamDiagnostics: Codable, Sendable, Equatable {
+    /// From opening the video to the player's first completed read.
+    public var firstReadMilliseconds: Int?
+    public var articles: Int
+    public var megabytes: Double
+    public var averageArticleMilliseconds: Int
+    /// Slow articles requested again on another connection, and how often that copy won.
+    public var hedges: Int
+    public var hedgeWins: Int
+    /// Player reads that waited over a second.
+    public var slowReads: Int
+    /// Articles moved from memory to disk.
+    public var spilled: Int
+    /// Connections the provider allowed, after any automatic reduction.
+    public var connections: Int
+    public var playbackMegabitsPerSecond: Double?
+
+    public init(
+        firstReadMilliseconds: Int?, articles: Int, megabytes: Double, averageArticleMilliseconds: Int,
+        hedges: Int, hedgeWins: Int, slowReads: Int, spilled: Int, connections: Int,
+        playbackMegabitsPerSecond: Double?
+    ) {
+        self.firstReadMilliseconds = firstReadMilliseconds
+        self.articles = articles
+        self.megabytes = megabytes
+        self.averageArticleMilliseconds = averageArticleMilliseconds
+        self.hedges = hedges
+        self.hedgeWins = hedgeWins
+        self.slowReads = slowReads
+        self.spilled = spilled
+        self.connections = connections
+        self.playbackMegabitsPerSecond = playbackMegabitsPerSecond
+    }
 }
 
 /// Deliberately accepts no URLs, headers, response bodies, or arbitrary error text.
@@ -93,6 +132,14 @@ public actor DiagnosticRecorder {
                 date: Date(), operation: .artwork, attempt: 0,
                 milliseconds: max(0, milliseconds), status: nil, outcome: .success,
                 artworkStage: stage, isPrefetch: priority == .prefetch))
+    }
+
+    public func recordUsenet(_ summary: UsenetStreamDiagnostics, milliseconds: Int) {
+        var event = DiagnosticEvent(
+            date: Date(), operation: .usenetStream, attempt: 0, milliseconds: max(0, milliseconds),
+            status: nil, outcome: .success)
+        event.usenet = summary
+        record(event)
     }
 
     public func flush() {

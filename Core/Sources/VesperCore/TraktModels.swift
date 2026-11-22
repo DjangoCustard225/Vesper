@@ -212,17 +212,13 @@ public enum TraktError: Error, LocalizedError, Equatable {
 }
 
 enum TraktDates {
+    // Value-type styles are shared, instead of building a formatter for every history entry.
+    private static let fractional = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+    private static let whole = Date.ISO8601FormatStyle()
+
     static func parse(_ value: String) -> Date? {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let result = formatter.date(from: value) { return result }
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter.date(from: value)
+        (try? fractional.parse(value)) ?? (try? whole.parse(value))
     }
 
-    static func string(_ value: Date) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter.string(from: value)
-    }
+    static func string(_ value: Date) -> String { fractional.format(value) }
 }

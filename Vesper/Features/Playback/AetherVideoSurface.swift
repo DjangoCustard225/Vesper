@@ -10,9 +10,7 @@ struct AetherVideoSurface: View {
             AetherRenderSurface(controller: controller)
             if !controller.pictureInPictureState.isPresented {
                 GeometryReader { geometry in
-                    let cues = controller.subtitleCues.filter {
-                        $0.startTime <= controller.subtitleTime && controller.subtitleTime < $0.endTime
-                    }
+                    let cues = controller.activeSubtitleCues
                     let text = cues.compactMap(\.text).joined(separator: "\n")
                     ForEach(cues) { cue in
                         if case .image(let subtitle) = cue.body {

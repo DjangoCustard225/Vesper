@@ -18,7 +18,14 @@ public struct UsenetEpisodeTarget: Sendable {
         let pattern =
             "(?i)(?<![a-z0-9])(?:s0*\(season)[ ._-]*e0*\(episode)|0*\(season)x0*\(episode))(?![0-9])"
         if name.range(of: pattern, options: .regularExpression) != nil { return true }
-        guard let airDate, airDate.count == 10,
+        // An explicit episode tag for a different episode wins over the air date, except for
+        // year-numbered seasons (S2024E15), whose episode numbering differs between indexers.
+        guard
+            name.range(
+                of: #"(?i)(?<![a-z0-9])(?:s(?!(?:19|20)[0-9]{2}[ ._-]*e)[0-9]+[ ._-]*e[0-9]+"#
+                    + #"|[0-9]{1,2}x[0-9]{1,3})(?![0-9])"#,
+                options: .regularExpression) == nil,
+            let airDate, airDate.count == 10,
             airDate.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil
         else { return false }
         let normalized = name.replacingOccurrences(of: ".", with: "-").replacingOccurrences(
