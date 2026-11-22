@@ -1,0 +1,29 @@
+{
+  "name": "Vesper",
+  "identifier": "app.vesper.source",
+  "subtitle": "Media player for iOS",
+  "description": "Vesper is a media player written in Swift for iOS. It connects to external services and add-ons to display, stream and download content.",
+  "iconURL": "https://raw.githubusercontent.com/DjangoCustard225/Vesper/main/docs/app-icon.png",
+  "website": "https://github.com/DjangoCustard225/Vesper",
+  "tintColor": "#161514",
+  "apps": [
+    {
+      "name": "Vesper",
+      "bundleIdentifier": "app.vesper",
+      "developerName": "DjangoCustard225",
+      "subtitle": "Media player for iOS",
+      "localizedDescription": "Vesper connects to Stremio add-ons and your own Usenet provider to browse, stream and download content, with widgets, a built-in player and iCloud sync for your library and add-ons. Requires iOS 27 or later.",
+      "iconURL": "https://raw.githubusercontent.com/DjangoCustard225/Vesper/main/docs/app-icon.png",
+      "tintColor": "#161514",
+      "category": "entertainment",
+      "screenshotURLs": [],
+      "version": "0.5.4",
+      "versionDate": "2026-11-22",
+      "versionDescription": "Introduced widgets, a new app icon, cleaned up API entry pages, iCloud sync for your library and add-ons, and various UI refinements.",
+      "downloadURL": "https://github.com/DjangoCustard225/Vesper/releases/latest/download/Vesper.ipa",
+      "size": 15884030,
+      "minOSVersion": "27.0"
+    }
+  ],
+  "news": []
+}
