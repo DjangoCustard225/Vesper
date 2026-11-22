@@ -17,10 +17,10 @@
       "tintColor": "7C8494",
       "category": "entertainment",
       "screenshotURLs": [
-        "https://raw.githubusercontent.com/DjangoCustard225/Vesper/main/altsource/screenshots/home.jpg",
-        "https://raw.githubusercontent.com/DjangoCustard225/Vesper/main/altsource/screenshots/details.jpg",
-        "https://raw.githubusercontent.com/DjangoCustard225/Vesper/main/altsource/screenshots/actor.jpg",
-        "https://raw.githubusercontent.com/DjangoCustard225/Vesper/main/altsource/screenshots/settings.jpg"
+        "https://raw.githubusercontent.com/DjangoCustard225/Vesper/main/altsource/screenshots/1-home.jpg",
+        "https://raw.githubusercontent.com/DjangoCustard225/Vesper/main/altsource/screenshots/2-details.jpg",
+        "https://raw.githubusercontent.com/DjangoCustard225/Vesper/main/altsource/screenshots/3-actor.jpg",
+        "https://raw.githubusercontent.com/DjangoCustard225/Vesper/main/altsource/screenshots/4-settings.jpg"
       ],
       "version": "0.5.4",
       "versionDate": "2026-11-22",
