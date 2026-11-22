@@ -8,6 +8,12 @@
   <img src="https://img.shields.io/badge/iOS-27%2B-007AFF?style=flat-square" alt="Requires iOS 27 or later">
 </p>
 
+<p align="center">
+  <a href="https://intradeus.github.io/http-protocol-redirector?r=altstore://source?url=https://raw.githubusercontent.com/DjangoCustard225/Vesper/main/altsource/source.json"><img src="docs/buttons/altstore.svg" height="54" alt="Add to AltStore"></a>
+  <a href="https://intradeus.github.io/http-protocol-redirector?r=sidestore://source?url=https://raw.githubusercontent.com/DjangoCustard225/Vesper/main/altsource/source.json"><img src="docs/buttons/sidestore.svg" height="54" alt="Add to SideStore"></a>
+  <a href="https://intradeus.github.io/http-protocol-redirector?r=feather://source/https://raw.githubusercontent.com/DjangoCustard225/Vesper/main/altsource/source.json"><img src="docs/buttons/feather.svg" height="54" alt="Add to Feather"></a>
+</p>
+
 Vesper is a media player written in Swift for iOS. It connects to external services and addons to display, stream and download content in a modern interface.
 
 ## Screenshots
@@ -27,13 +33,7 @@ Vesper is a media player written in Swift for iOS. It connects to external servi
 
 ## Get started
 
-<p>
-  <a href="https://intradeus.github.io/http-protocol-redirector?r=altstore://source?url=https://raw.githubusercontent.com/DjangoCustard225/Vesper/main/altsource/source.json"><img src="docs/buttons/altstore.svg" height="48" alt="Add to AltStore"></a>
-  <a href="https://intradeus.github.io/http-protocol-redirector?r=sidestore://source?url=https://raw.githubusercontent.com/DjangoCustard225/Vesper/main/altsource/source.json"><img src="docs/buttons/sidestore.svg" height="48" alt="Add to SideStore"></a>
-  <a href="https://intradeus.github.io/http-protocol-redirector?r=feather://source/https://raw.githubusercontent.com/DjangoCustard225/Vesper/main/altsource/source.json"><img src="docs/buttons/feather.svg" height="48" alt="Add to Feather"></a>
-</p>
-
-1. Add Vesper with the buttons above, or download the IPA from the [latest release](https://github.com/DjangoCustard225/Vesper/releases/latest). It needs **iOS 27 or later**, and the IPA is unsigned, so it needs signing before installation.
+1. Add Vesper with the buttons at the top, or download the IPA from the [latest release](https://github.com/DjangoCustard225/Vesper/releases/latest). It needs **iOS 27 or later**, and the IPA is unsigned, so it needs signing before installation.
 2. Add a TMDB API key in **Settings → TMDB**.
 3. Optionally, configure the other services in the settings for an enriched experience.
 4. Add an add-on in **Settings → Add-ons** or a Usenet provider in **Settings → Usenet**.
