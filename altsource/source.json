@@ -1,28 +1,41 @@
 {
   "name": "Vesper",
   "identifier": "app.vesper.source",
-  "subtitle": "Media player for iOS",
+  "subtitle": "Stream, download and sync your library",
   "description": "Vesper is a media player written in Swift for iOS. It connects to external services and add-ons to display, stream and download content.",
   "iconURL": "https://raw.githubusercontent.com/DjangoCustard225/Vesper/main/docs/app-icon.png",
   "website": "https://github.com/DjangoCustard225/Vesper",
-  "tintColor": "#161514",
+  "tintColor": "7C8494",
   "apps": [
     {
       "name": "Vesper",
       "bundleIdentifier": "app.vesper",
       "developerName": "DjangoCustard225",
-      "subtitle": "Media player for iOS",
-      "localizedDescription": "Vesper connects to Stremio add-ons and your own Usenet provider to browse, stream and download content, with widgets, a built-in player and iCloud sync for your library and add-ons. Requires iOS 27 or later.",
+      "subtitle": "Stream, download and sync your library",
+      "localizedDescription": "Vesper is a media player for iOS.\n\n• Browse movies and shows with cast, ratings and related titles.\n• Stream from Stremio add-ons or your own Usenet provider.\n• Use the built-in player, or hand off to VLC, Infuse or Outplayer.\n• Download titles to watch offline.\n• Home Screen widgets for Continue Watching, Up Next and your Library.\n• Sync your library and add-ons with iCloud, and your history with Trakt or SIMKL.\n\nVesper has no ads or analytics and doesn't include any content. Requires iOS 27 or later.",
       "iconURL": "https://raw.githubusercontent.com/DjangoCustard225/Vesper/main/docs/app-icon.png",
-      "tintColor": "#161514",
+      "tintColor": "7C8494",
       "category": "entertainment",
-      "screenshotURLs": [],
+      "screenshotURLs": [
+        "https://raw.githubusercontent.com/DjangoCustard225/Vesper/main/altsource/screenshots/home.jpg",
+        "https://raw.githubusercontent.com/DjangoCustard225/Vesper/main/altsource/screenshots/details.jpg",
+        "https://raw.githubusercontent.com/DjangoCustard225/Vesper/main/altsource/screenshots/actor.jpg",
+        "https://raw.githubusercontent.com/DjangoCustard225/Vesper/main/altsource/screenshots/settings.jpg"
+      ],
       "version": "0.5.4",
       "versionDate": "2026-11-22",
-      "versionDescription": "Introduced widgets, a new app icon, cleaned up API entry pages, iCloud sync for your library and add-ons, and various UI refinements.",
+      "versionDescription": "• Introduced widgets for Continue Watching, Up Next and your Library.\n• New app icon.\n• Cleaned up the API entry pages.\n• iCloud sync for your library and add-ons.\n• Various UI refinements.",
       "downloadURL": "https://github.com/DjangoCustard225/Vesper/releases/latest/download/Vesper.ipa",
       "size": 15884030,
-      "minOSVersion": "27.0"
+      "minOSVersion": "27.0",
+      "appPermissions": {
+        "entitlements": [
+          "com.apple.security.application-groups"
+        ],
+        "privacy": {
+          "NSLocalNetworkUsageDescription": "Vesper connects to add-ons and video sources on your local network."
+        }
+      }
     }
   ],
   "news": []
